@@ -19,6 +19,11 @@
  */
 
 #include <stdint.h>
+#include <json-c/json.h>
+#include <sys/mman.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
 
 #include "avconv.h"
 #include "cmdutils.h"
@@ -2272,6 +2277,114 @@ fail:
         av_strerror(ret, error, sizeof(error));
         av_log(NULL, AV_LOG_FATAL, "%s\n", error);
     }
+    return ret;
+}
+
+int avconv_parse_json_options(char *json)
+{
+    int ret;
+    struct json_object *fjson;
+    FILE *json_file = fopen(json, "r");
+    struct stat sb;
+    const char *memblock;
+    int i;
+    
+    if (!json_file) {
+        ret = -1;
+        av_log(NULL, AV_LOG_FATAL, "Cannot read json config file '%s': %s\n",
+               json, strerror(errno));
+        goto fail;
+    }
+    
+    fstat(fileno(json_file), &sb);
+    
+    memblock = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, fileno(json_file), 0);
+    
+    if (memblock == MAP_FAILED) {
+        ret = -1;
+        av_log(NULL, AV_LOG_FATAL, "Failed to map file '%s': %s\n",
+               json, strerror(errno));
+        goto fail;
+    }
+    
+    fjson = json_tokener_parse(memblock);
+    
+    //json_object_object_foreachC
+    json_object_object_foreach(fjson, key, val) {
+        
+        if (strncmp(key, "global", sizeof("global")) == 0) {
+            
+            struct json_object* loglevel;
+            
+            if (json_object_object_get_ex(val, "loglevel", &loglevel)) {
+                const char *level = json_object_get_string(loglevel);
+                
+                opt_loglevel(NULL, "loglevel", level);
+            }
+        }
+        else if (strncmp(key, "input", sizeof("input")) == 0) {
+            
+            struct array_list *input_array = json_object_get_array(val);
+            
+            if (input_array) {
+                int len = json_object_array_length(val);
+                
+                for (i = 0; i < len; ++i) {
+                    
+                    json_object_array_get_idx(val, i);
+                    
+                    printf("input_key: %d\n", i);
+                }
+            }
+        }
+        else if (strncmp(key, "filter_complex", sizeof("filter_complex")) == 0) {
+            
+            struct array_list *filter_array = json_object_get_array(val);
+            
+            if (filter_array) {
+                int len = json_object_array_length(val);
+                
+                for (i = 0; i < len; ++i) {
+                    
+                    json_object *input = json_object_array_get_idx(val, i);
+                    
+                    printf("filter_array: %d\n", i);
+                }
+            }
+            
+        }
+        else if (strncmp(key, "output", sizeof("output")) == 0) {
+            
+            struct array_list *output_array = json_object_get_array(val);
+            
+            if (output_array) {
+                int len = json_object_array_length(val);
+                
+                for (i = 0; i < len; ++i) {
+                    
+                    json_object_array_get_idx(val, i);
+                    
+                    printf("output_key: %d\n", i);
+                }
+            }
+        }
+    }
+    
+    ret = -1;
+    
+fail:
+    if (fjson) {
+        json_object_object_del(fjson, "");
+    }
+    
+    if (memblock) {
+        munmap(memblock, sb.st_size);
+    }
+    
+    if (json_file) {
+        fclose(json_file);
+    }
+    
     return ret;
 }
 

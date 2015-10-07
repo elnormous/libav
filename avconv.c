@@ -2587,11 +2587,21 @@ int main(int argc, char **argv)
     avformat_network_init();
 
     show_banner();
+    
+    char* json = parse_json(argc, argv, options);
 
-    /* parse options and open all input/output files */
-    ret = avconv_parse_options(argc, argv);
-    if (ret < 0)
-        exit_program(1);
+    if (json) {
+        /* parse options and open all input/output files */
+        ret = avconv_parse_json_options(json);
+        if (ret < 0)
+            exit_program(1);
+    }
+    else {
+        /* parse options and open all input/output files */
+        ret = avconv_parse_options(argc, argv);
+        if (ret < 0)
+            exit_program(1);
+    }
 
     if (nb_output_files <= 0 && nb_input_files == 0) {
         show_usage();
