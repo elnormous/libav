@@ -268,6 +268,7 @@ Toolchain options:
 
 Advanced options (experts only):
   --malloc-prefix=PREFIX   prefix malloc and related names with PREFIX
+  --custom-allocator=NAME  use a supported custom allocator
   --disable-symver         disable symbol versioning
   --enable-hardcoded-tables use hardcoded tables instead of runtime generation
   --disable-safe-bitstream-reader
@@ -1128,18 +1129,37 @@ cp_if_changed(){
 # CONFIG_LIST contains configurable options, while HAVE_LIST is for
 # system-dependent things.
 
-COMPONENT_LIST="
+AVCODEC_COMPONENTS="
     bsfs
     decoders
-    demuxers
     encoders
-    filters
     hwaccels
-    indevs
-    muxers
-    outdevs
     parsers
+"
+
+AVDEVICE_COMPONENTS="
+    indevs
+    outdevs
+"
+AVFILTER_COMPONENTS="
+    filters
+"
+AVFORMAT_COMPONENTS="
+    demuxers
+    muxers
     protocols
+"
+
+AVRESAMPLE_COMPONENTS=""
+AVUTIL_COMPONENTS=""
+
+COMPONENT_LIST="
+    $AVCODEC_COMPONENTS
+    $AVDEVICE_COMPONENTS
+    $AVFILTER_COMPONENTS
+    $AVFORMAT_COMPONENTS
+    $AVRESAMPLE_COMPONENTS
+    $AVUTIL_COMPONENTS
 "
 
 EXAMPLE_LIST="
@@ -1358,11 +1378,21 @@ ARCH_EXT_LIST_X86="
     i686
 "
 
+ARCH_EXT_LIST_MIPS="
+    loongson
+    mips32r1
+    mips64r1
+    mips32r2
+    mips64r2
+    mips32r6
+    mips64r6
+"
+
 ARCH_EXT_LIST="
     $ARCH_EXT_LIST_ARM
+    $ARCH_EXT_LIST_MIPS
     $ARCH_EXT_LIST_PPC
     $ARCH_EXT_LIST_X86
-    loongson
     vis
 "
 
@@ -1682,6 +1712,7 @@ CMDLINE_SET="
     cc
     cpu
     cross_prefix
+    custom_allocator
     dep_cc
     env
     extra_version
@@ -1963,6 +1994,7 @@ rv20_decoder_select="error_resilience h263_decoder h263dsp mpeg_er"
 rv20_encoder_select="h263_encoder"
 rv30_decoder_select="error_resilience golomb h264chroma h264pred h264qpel mpeg_er mpegvideo rv34dsp videodsp"
 rv40_decoder_select="error_resilience golomb h264chroma h264pred h264qpel mpeg_er mpegvideo rv34dsp videodsp"
+screenpresso_decoder_deps="zlib"
 shorten_decoder_select="golomb"
 sipr_decoder_select="lsp"
 sp5x_decoder_select="mjpeg_decoder"
@@ -2588,6 +2620,18 @@ for e in $env; do
 done
 
 disabled logging && logfile=/dev/null
+
+# Disable all the library-specific components if the library itself
+# is disabled, see AVCODEC_LIST and following _LIST variables.
+
+disable_components(){
+    disabled ${1} && disable $(
+        eval components="\$$(toupper ${1})_COMPONENTS"
+        map 'eval echo \${$(toupper ${v%s})_LIST}' $components
+    )
+}
+
+map 'disable_components $v' $LIBRARY_LIST
 
 echo "# $0 $LIBAV_CONFIGURATION" > $logfile
 set >> $logfile
@@ -3463,6 +3507,7 @@ fi
 if [ "$cpu" != generic ]; then
     add_cflags  $cpuflags
     add_asflags $cpuflags
+    test "$cc_type" = "$ld_type" && add_ldflags $cpuflags
 fi
 
 # compiler sanity check
@@ -4060,6 +4105,19 @@ elif enabled mips; then
 
     check_inline_asm loongson '"dmult.g $1, $2, $3"'
 
+    # make sure that only an instruction set is enabled
+    disable mips64r6 mips32r6 mips64r2 mips32r2 mips64r1 mips32r1
+
+    if enabled mips64; then
+        check_inline_asm mips64r6 '"dlsa $0, $0, $0, 1"' ||
+            check_inline_asm mips64r2 '"dext $0, $0, 0, 1"' ||
+                check_inline_asm mips64r1 '"daddi $0, $0, 0"'
+    else
+        check_inline_asm mips32r6 '"aui $0, $0, 0"' ||
+            check_inline_asm mips32r2 '"ext $0, $0, 0, 1"' ||
+                check_inline_asm mips32r1 '"addi $0, $0, 0"'
+    fi
+
 elif enabled parisc; then
 
     if enabled gcc; then
@@ -4221,6 +4279,17 @@ check_builtin atomic_cas_ptr atomic.h "void **ptr; void *oldval, *newval; atomic
 check_builtin machine_rw_barrier mbarrier.h "__machine_rw_barrier()"
 check_builtin MemoryBarrier windows.h "MemoryBarrier()"
 check_builtin sync_val_compare_and_swap "" "int *ptr; int oldval, newval; __sync_val_compare_and_swap(ptr, oldval, newval)"
+
+case "$custom_allocator" in
+    jemalloc)
+        # jemalloc by default does not use a prefix
+        require libjemalloc jemalloc/jemalloc.h malloc -ljemalloc
+    ;;
+    tcmalloc)
+        require_pkg_config libtcmalloc gperftools/tcmalloc.h tc_malloc
+        malloc_prefix=tc_
+    ;;
+esac
 
 check_func_headers malloc.h _aligned_malloc     && enable aligned_malloc
 check_func  ${malloc_prefix}memalign            && enable memalign

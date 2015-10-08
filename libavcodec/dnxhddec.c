@@ -30,6 +30,7 @@
 #include "dnxhddata.h"
 #include "idctdsp.h"
 #include "internal.h"
+#include "thread.h"
 
 typedef struct DNXHDContext {
     AVCodecContext *avctx;
@@ -48,6 +49,7 @@ typedef struct DNXHDContext {
     const CIDEntry *cid_table;
     int bit_depth; // 8, 10 or 0 if not initialized at all.
     int is_444;
+    int mbaff;
     void (*decode_dct_block)(struct DNXHDContext *ctx, int16_t *block,
                              int n, int qscale);
 } DNXHDContext;
@@ -131,6 +133,7 @@ static int dnxhd_decode_header(DNXHDContext *ctx, AVFrame *frame,
         av_log(ctx->avctx, AV_LOG_DEBUG,
                "interlaced %d, cur field %d\n", buf[5] & 3, ctx->cur_field);
     }
+    ctx->mbaff = buf[0x6] & 32;
 
     ctx->height = AV_RB16(buf + 0x18);
     ctx->width  = AV_RB16(buf + 0x1a);
@@ -168,6 +171,9 @@ static int dnxhd_decode_header(DNXHDContext *ctx, AVFrame *frame,
 
     if ((ret = dnxhd_init_vlc(ctx, cid)) < 0)
         return ret;
+    if (ctx->mbaff && ctx->cid_table->cid != 1260)
+        av_log(ctx->avctx, AV_LOG_WARNING,
+               "Adaptive MB interlace flag in an unsupported profile.\n");
 
     // make sure profile size constraints are respected
     // DNx100 allows 1920->1440 and 1280->960 subsampling
@@ -321,8 +327,14 @@ static int dnxhd_decode_macroblock(DNXHDContext *ctx, AVFrame *frame,
     uint8_t *dest_y, *dest_u, *dest_v;
     int dct_y_offset, dct_x_offset;
     int qscale, i;
+    int interlaced_mb = 0;
 
-    qscale = get_bits(&ctx->gb, 11);
+    if (ctx->mbaff) {
+        interlaced_mb = get_bits1(&ctx->gb);
+        qscale = get_bits(&ctx->gb, 10);
+    } else {
+        qscale = get_bits(&ctx->gb, 11);
+    }
     skip_bits1(&ctx->gb);
 
     for (i = 0; i < 8; i++) {
@@ -350,8 +362,12 @@ static int dnxhd_decode_macroblock(DNXHDContext *ctx, AVFrame *frame,
         dest_u += frame->linesize[1];
         dest_v += frame->linesize[2];
     }
+    if (interlaced_mb) {
+        dct_linesize_luma   <<= 1;
+        dct_linesize_chroma <<= 1;
+    }
 
-    dct_y_offset = dct_linesize_luma << 3;
+    dct_y_offset = interlaced_mb ? frame->linesize[0] : (dct_linesize_luma << 3);
     dct_x_offset = 8 << shift1;
     if (!ctx->is_444) {
         ctx->idsp.idct_put(dest_y,                               dct_linesize_luma, ctx->blocks[0]);
@@ -360,7 +376,7 @@ static int dnxhd_decode_macroblock(DNXHDContext *ctx, AVFrame *frame,
         ctx->idsp.idct_put(dest_y + dct_y_offset + dct_x_offset, dct_linesize_luma, ctx->blocks[5]);
 
         if (!(ctx->avctx->flags & AV_CODEC_FLAG_GRAY)) {
-            dct_y_offset = dct_linesize_chroma << 3;
+            dct_y_offset = interlaced_mb ? frame->linesize[1] : (dct_linesize_chroma << 3);
             ctx->idsp.idct_put(dest_u,                dct_linesize_chroma, ctx->blocks[2]);
             ctx->idsp.idct_put(dest_v,                dct_linesize_chroma, ctx->blocks[3]);
             ctx->idsp.idct_put(dest_u + dct_y_offset, dct_linesize_chroma, ctx->blocks[6]);
@@ -373,7 +389,7 @@ static int dnxhd_decode_macroblock(DNXHDContext *ctx, AVFrame *frame,
         ctx->idsp.idct_put(dest_y + dct_y_offset + dct_x_offset, dct_linesize_luma, ctx->blocks[7]);
 
         if (!(ctx->avctx->flags & AV_CODEC_FLAG_GRAY)) {
-            dct_y_offset = dct_linesize_chroma << 3;
+            dct_y_offset = interlaced_mb ? frame->linesize[1] : (dct_linesize_chroma << 3);
             ctx->idsp.idct_put(dest_u,                               dct_linesize_chroma, ctx->blocks[2]);
             ctx->idsp.idct_put(dest_u + dct_x_offset,                dct_linesize_chroma, ctx->blocks[3]);
             ctx->idsp.idct_put(dest_u + dct_y_offset,                dct_linesize_chroma, ctx->blocks[8]);
@@ -412,14 +428,16 @@ static int dnxhd_decode_frame(AVCodecContext *avctx, void *data,
     const uint8_t *buf = avpkt->data;
     int buf_size = avpkt->size;
     DNXHDContext *ctx = avctx->priv_data;
-    AVFrame *picture = data;
+    ThreadFrame tf;
     int first_field = 1;
     int ret;
+
+    tf.f = data;
 
     ff_dlog(avctx, "frame size %d\n", buf_size);
 
 decode_coding_unit:
-    if ((ret = dnxhd_decode_header(ctx, picture, buf, buf_size, first_field)) < 0)
+    if ((ret = dnxhd_decode_header(ctx, tf.f, buf, buf_size, first_field)) < 0)
         return ret;
 
     if ((avctx->width || avctx->height) &&
@@ -434,17 +452,17 @@ decode_coding_unit:
         return ret;
 
     if (first_field) {
-        if ((ret = ff_get_buffer(avctx, picture, 0)) < 0) {
+        if ((ret = ff_thread_get_buffer(avctx, &tf, 0)) < 0) {
             av_log(avctx, AV_LOG_ERROR, "get_buffer() failed\n");
             return ret;
         }
-        picture->pict_type = AV_PICTURE_TYPE_I;
-        picture->key_frame = 1;
+        tf.f->pict_type = AV_PICTURE_TYPE_I;
+        tf.f->key_frame = 1;
     }
 
-    dnxhd_decode_macroblocks(ctx, picture, buf + 0x280, buf_size - 0x280);
+    dnxhd_decode_macroblocks(ctx, tf.f, buf + 0x280, buf_size - 0x280);
 
-    if (first_field && picture->interlaced_frame) {
+    if (first_field && tf.f->interlaced_frame) {
         buf      += ctx->cid_table->coding_unit_size;
         buf_size -= ctx->cid_table->coding_unit_size;
         first_field = 0;
@@ -474,5 +492,5 @@ AVCodec ff_dnxhd_decoder = {
     .init           = dnxhd_decode_init,
     .close          = dnxhd_decode_close,
     .decode         = dnxhd_decode_frame,
-    .capabilities   = AV_CODEC_CAP_DR1,
+    .capabilities   = AV_CODEC_CAP_DR1 | AV_CODEC_CAP_FRAME_THREADS,
 };

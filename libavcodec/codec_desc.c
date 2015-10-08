@@ -1162,6 +1162,13 @@ static const AVCodecDescriptor codec_descriptors[] = {
         .long_name = NULL_IF_CONFIG_SMALL("Resolume DXV"),
         .props     = AV_CODEC_PROP_INTRA_ONLY | AV_CODEC_PROP_LOSSY,
     },
+    {
+        .id        = AV_CODEC_ID_SCREENPRESSO,
+        .type      = AVMEDIA_TYPE_VIDEO,
+        .name      = "screenpresso",
+        .long_name = NULL_IF_CONFIG_SMALL("Screenpresso"),
+        .props     = AV_CODEC_PROP_LOSSLESS,
+    },
 
     /* image codecs */
     {
@@ -2434,4 +2441,10 @@ const AVCodecDescriptor *avcodec_descriptor_get_by_name(const char *name)
         if (!strcmp(desc->name, name))
             return desc;
     return NULL;
+}
+
+enum AVMediaType avcodec_get_type(enum AVCodecID codec_id)
+{
+    const AVCodecDescriptor *desc = avcodec_descriptor_get(codec_id);
+    return desc ? desc->type : AVMEDIA_TYPE_UNKNOWN;
 }
