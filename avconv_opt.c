@@ -2284,7 +2284,7 @@ fail:
 int avconv_parse_json_options(char *json)
 {
     int ret;
-    struct json_object *fjson;
+    struct json_object *fjson = 0;
     FILE *json_file = fopen(json, "r");
     struct stat sb;
     const char *memblock;
