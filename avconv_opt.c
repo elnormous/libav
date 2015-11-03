@@ -19,7 +19,6 @@
  */
 
 #include <stdint.h>
-#include <json-c/json.h>
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -27,6 +26,7 @@
 
 #include "avconv.h"
 #include "cmdutils.h"
+#include "jsonutils.h"
 
 #include "libavformat/avformat.h"
 
@@ -2283,12 +2283,15 @@ fail:
 
 int avconv_parse_json_options(char *json)
 {
+    OptionParseContext octx;
+    
     int ret;
     struct json_object *fjson = 0;
     FILE *json_file = fopen(json, "r");
     struct stat sb;
-    const char *memblock;
-    int i;
+    char *memblock;
+    
+    memset(&octx, 0, sizeof(octx));
     
     if (!json_file) {
         ret = -1;
@@ -2310,66 +2313,9 @@ int avconv_parse_json_options(char *json)
     
     fjson = json_tokener_parse(memblock);
     
-    //json_object_object_foreachC
-    json_object_object_foreach(fjson, key, val) {
-        
-        if (strncmp(key, "global", sizeof("global")) == 0) {
-            
-            struct json_object* loglevel;
-            
-            if (json_object_object_get_ex(val, "loglevel", &loglevel)) {
-                const char *level = json_object_get_string(loglevel);
-                
-                opt_loglevel(NULL, "loglevel", level);
-            }
-        }
-        else if (strncmp(key, "input", sizeof("input")) == 0) {
-            
-            struct array_list *input_array = json_object_get_array(val);
-            
-            if (input_array) {
-                int len = json_object_array_length(val);
-                
-                for (i = 0; i < len; ++i) {
-                    
-                    json_object_array_get_idx(val, i);
-                    
-                    printf("input_key: %d\n", i);
-                }
-            }
-        }
-        else if (strncmp(key, "filter_complex", sizeof("filter_complex")) == 0) {
-            
-            struct array_list *filter_array = json_object_get_array(val);
-            
-            if (filter_array) {
-                int len = json_object_array_length(val);
-                
-                for (i = 0; i < len; ++i) {
-                    
-                    json_object *input = json_object_array_get_idx(val, i);
-                    
-                    printf("filter_array: %d\n", i);
-                }
-            }
-            
-        }
-        else if (strncmp(key, "output", sizeof("output")) == 0) {
-            
-            struct array_list *output_array = json_object_get_array(val);
-            
-            if (output_array) {
-                int len = json_object_array_length(val);
-                
-                for (i = 0; i < len; ++i) {
-                    
-                    json_object_array_get_idx(val, i);
-                    
-                    printf("output_key: %d\n", i);
-                }
-            }
-        }
-    }
+    /* split the commandline into an internal representation */
+    ret = split_json(&octx, fjson, options, groups,
+                            FF_ARRAY_ELEMS(groups));
     
     ret = -1;
     
