@@ -37,6 +37,9 @@ typedef struct SVCContext {
     int slice_mode;
     int loopfilter;
     char *profile;
+    int max_nal_size;
+    int skip_frames;
+    int skipped;
 } SVCContext;
 
 #define OPENH264_VER_AT_LEAST(maj, min) \
@@ -50,8 +53,11 @@ static const AVOption options[] = {
     { "fixed", "A fixed number of slices", 0, AV_OPT_TYPE_CONST, { .i64 = SM_FIXEDSLCNUM_SLICE }, 0, 0, VE, "slice_mode" },
     { "rowmb", "One slice per row of macroblocks", 0, AV_OPT_TYPE_CONST, { .i64 = SM_ROWMB_SLICE }, 0, 0, VE, "slice_mode" },
     { "auto", "Automatic number of slices according to number of threads", 0, AV_OPT_TYPE_CONST, { .i64 = SM_AUTO_SLICE }, 0, 0, VE, "slice_mode" },
+    { "dyn", "Dynamic slicing", 0, AV_OPT_TYPE_CONST, { .i64 = SM_DYN_SLICE }, 0, 0, VE, "slice_mode" },
     { "loopfilter", "Enable loop filter", OFFSET(loopfilter), AV_OPT_TYPE_INT, { .i64 = 1 }, 0, 1, VE },
     { "profile", "Set profile restrictions", OFFSET(profile), AV_OPT_TYPE_STRING, { 0 }, 0, 0, VE },
+    { "max_nal_size", "Set maximum NAL size in bytes", OFFSET(max_nal_size), AV_OPT_TYPE_INT, { 0 }, 0, INT_MAX, VE },
+    { "allow_skip_frames", "Allow skipping frames to hit the target bitrate", OFFSET(skip_frames), AV_OPT_TYPE_INT, { 0 }, 0, 1, VE },
     { NULL }
 };
 
@@ -90,6 +96,8 @@ static av_cold int svc_encode_close(AVCodecContext *avctx)
 
     if (s->encoder)
         WelsDestroySVCEncoder(s->encoder);
+    if (s->skipped > 0)
+        av_log(avctx, AV_LOG_WARNING, "%d frames skipped\n", s->skipped);
     return 0;
 }
 
@@ -141,7 +149,7 @@ static av_cold int svc_encode_init(AVCodecContext *avctx)
     param.bEnableDenoise             = 0;
     param.bEnableBackgroundDetection = 1;
     param.bEnableAdaptiveQuant       = 1;
-    param.bEnableFrameSkip           = 0;
+    param.bEnableFrameSkip           = s->skip_frames;
     param.bEnableLongTermReference   = 0;
     param.iLtrMarkPeriod             = 30;
     param.uiIntraPeriod              = avctx->gop_size;
@@ -165,10 +173,35 @@ static av_cold int svc_encode_init(AVCodecContext *avctx)
     param.sSpatialLayers[0].iSpatialBitrate     = param.iTargetBitrate;
     param.sSpatialLayers[0].iMaxSpatialBitrate  = param.iMaxBitrate;
 
+    if ((avctx->slices > 1) && (s->max_nal_size)){
+        av_log(avctx,AV_LOG_ERROR,"Invalid combination -slices %d and -max_nal_size %d.\n",avctx->slices,s->max_nal_size);
+        goto fail;
+    }
+
     if (avctx->slices > 1)
         s->slice_mode = SM_FIXEDSLCNUM_SLICE;
+
+    if (s->max_nal_size)
+        s->slice_mode = SM_DYN_SLICE;
+
     param.sSpatialLayers[0].sSliceCfg.uiSliceMode               = s->slice_mode;
     param.sSpatialLayers[0].sSliceCfg.sSliceArgument.uiSliceNum = avctx->slices;
+
+    if (s->slice_mode == SM_DYN_SLICE) {
+        if (s->max_nal_size){
+            param.uiMaxNalSize = s->max_nal_size;
+            param.sSpatialLayers[0].sSliceCfg.sSliceArgument.uiSliceSizeConstraint = s->max_nal_size;
+        } else {
+            if (avctx->rtp_payload_size) {
+                av_log(avctx,AV_LOG_DEBUG,"Using RTP Payload size for uiMaxNalSize");
+                param.uiMaxNalSize = avctx->rtp_payload_size;
+                param.sSpatialLayers[0].sSliceCfg.sSliceArgument.uiSliceSizeConstraint = avctx->rtp_payload_size;
+            } else {
+                av_log(avctx,AV_LOG_ERROR,"Invalid -max_nal_size, specify a valid max_nal_size to use -slice_mode dyn\n");
+                goto fail;
+            }
+        }
+    }
 
     if ((*s->encoder)->InitializeExt(s->encoder, &param) != cmResultSuccess) {
         av_log(avctx, AV_LOG_ERROR, "Initialize failed\n");
@@ -222,6 +255,7 @@ static int svc_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
         return AVERROR_UNKNOWN;
     }
     if (fbi.eFrameType == videoFrameTypeSkip) {
+        s->skipped++;
         av_log(avctx, AV_LOG_DEBUG, "frame skipped\n");
         return 0;
     }

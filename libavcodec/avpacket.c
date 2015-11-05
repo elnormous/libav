@@ -46,6 +46,26 @@ FF_ENABLE_DEPRECATION_WARNINGS
     pkt->side_data_elems      = 0;
 }
 
+AVPacket *av_packet_alloc(void)
+{
+    AVPacket *pkt = av_mallocz(sizeof(AVPacket));
+    if (!pkt)
+        return pkt;
+
+    av_packet_unref(pkt);
+
+    return pkt;
+}
+
+void av_packet_free(AVPacket **pkt)
+{
+    if (!pkt || !*pkt)
+        return;
+
+    av_packet_unref(*pkt);
+    av_freep(pkt);
+}
+
 static int packet_alloc(AVBufferRef **buf, int size)
 {
     int ret;
@@ -128,6 +148,8 @@ int av_packet_from_data(AVPacket *pkt, uint8_t *data, int size)
     return 0;
 }
 
+#if FF_API_AVPACKET_OLD_API
+FF_DISABLE_DEPRECATION_WARNINGS
 #define ALLOC_MALLOC(data, size) data = av_malloc(size)
 #define ALLOC_BUF(data, size)                \
 do {                                         \
@@ -184,9 +206,11 @@ int av_dup_packet(AVPacket *pkt)
     return 0;
 
 failed_alloc:
-    av_free_packet(pkt);
+    av_packet_unref(pkt);
     return AVERROR(ENOMEM);
 }
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
 
 void av_packet_free_side_data(AVPacket *pkt)
 {
@@ -197,6 +221,8 @@ void av_packet_free_side_data(AVPacket *pkt)
     pkt->side_data_elems = 0;
 }
 
+#if FF_API_AVPACKET_OLD_API
+FF_DISABLE_DEPRECATION_WARNINGS
 void av_free_packet(AVPacket *pkt)
 {
     if (pkt) {
@@ -208,6 +234,8 @@ void av_free_packet(AVPacket *pkt)
         av_packet_free_side_data(pkt);
     }
 }
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
 
 uint8_t *av_packet_new_side_data(AVPacket *pkt, enum AVPacketSideDataType type,
                                  int size)
@@ -332,6 +360,19 @@ int av_packet_ref(AVPacket *dst, AVPacket *src)
     return 0;
 fail:
     av_packet_free_side_data(dst);
+    return ret;
+}
+
+AVPacket *av_packet_clone(AVPacket *src)
+{
+    AVPacket *ret = av_packet_alloc();
+
+    if (!ret)
+        return ret;
+
+    if (av_packet_ref(ret, src))
+        av_packet_free(&ret);
+
     return ret;
 }
 

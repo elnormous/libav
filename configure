@@ -191,6 +191,7 @@ External library support:
   --enable-libfreetype     enable libfreetype [no]
   --enable-libgsm          enable GSM de/encoding via libgsm [no]
   --enable-libilbc         enable iLBC de/encoding via libilbc [no]
+  --enable-libkvazaar      enable HEVC encoding via libkvazaar [no]
   --enable-libmfx          enable HW acceleration through libmfx
   --enable-libmp3lame      enable MP3 encoding via libmp3lame [no]
   --enable-libopencore-amrnb enable AMR-NB de/encoding via libopencore-amrnb [no]
@@ -1187,6 +1188,7 @@ EXTERNAL_LIBRARY_LIST="
     libfreetype
     libgsm
     libilbc
+    libkvazaar
     libmfx
     libmp3lame
     libopencore_amrnb
@@ -1512,7 +1514,6 @@ SYSTEM_FUNCS="
     GetProcessMemoryInfo
     GetProcessTimes
     getrusage
-    getservbyport
     GetSystemTimeAsFileTime
     gettimeofday
     gmtime_r
@@ -1988,6 +1989,7 @@ qcelp_decoder_select="lsp"
 qdm2_decoder_select="mdct rdft mpegaudiodsp"
 ra_144_encoder_select="audio_frame_queue lpc"
 ralf_decoder_select="golomb"
+rscc_decoder_deps="zlib"
 rv10_decoder_select="error_resilience h263_decoder h263dsp mpeg_er"
 rv10_encoder_select="h263_encoder"
 rv20_decoder_select="error_resilience h263_decoder h263dsp mpeg_er"
@@ -2059,8 +2061,6 @@ vdpau_deps="vdpau_vdpau_h vdpau_vdpau_x11_h"
 
 h263_vaapi_hwaccel_deps="vaapi"
 h263_vaapi_hwaccel_select="h263_decoder"
-h263_vdpau_hwaccel_deps="vdpau"
-h263_vdpau_hwaccel_select="h263_decoder"
 h264_d3d11va_hwaccel_deps="d3d11va"
 h264_d3d11va_hwaccel_select="h264_decoder"
 h264_dxva2_hwaccel_deps="dxva2"
@@ -2134,6 +2134,7 @@ libgsm_ms_decoder_deps="libgsm"
 libgsm_ms_encoder_deps="libgsm"
 libilbc_decoder_deps="libilbc"
 libilbc_encoder_deps="libilbc"
+libkvazaar_encoder_deps="libkvazaar"
 libmp3lame_encoder_deps="libmp3lame"
 libmp3lame_encoder_select="audio_frame_queue"
 libopencore_amrnb_decoder_deps="libopencore_amrnb"
@@ -3111,7 +3112,7 @@ probe_cc(){
         _ld_lib='lib%.a'
         _ld_path='-libpath:'
         _flags='-nologo'
-        _cflags='-D_USE_MATH_DEFINES -D_CRT_SECURE_NO_WARNINGS'
+        _cflags='-D_USE_MATH_DEFINES -D_CRT_SECURE_NO_WARNINGS -D_CRT_NONSTDC_NO_WARNINGS'
     elif $_cc 2>&1 | grep -q Intel; then
         _type=icl
         _ident=$($_cc 2>&1 | head -n1)
@@ -3592,8 +3593,7 @@ case $target_os in
         enable section_data_rel_ro
         SLIB_INSTALL_NAME='$(SLIBNAME)'
         SLIB_INSTALL_LINKS=
-        # soname not set on purpose
-        SHFLAGS=-shared
+        SHFLAGS='-shared -Wl,-soname,$(SLIBNAME)'
         ;;
     haiku)
         prefix_default="/boot/common"
@@ -3613,6 +3613,7 @@ case $target_os in
             echo "hwcap_1 = OVERRIDE;" > mapfile &&
             add_ldflags -Wl,-M,mapfile
         nm_default='nm -P -g'
+        SLIB_CREATE_DEF_CMD='$(Q)perl $(SRC_PATH)/compat/solaris/make_sunver.pl $$(filter %.ver,$$^) $(OBJS) | grep -v @ > $(SUBDIR)lib$(NAME).ver-sol2'
         ;;
     netbsd)
         disable symver
@@ -4237,7 +4238,6 @@ fi
 
 if ! disabled network; then
     check_func getaddrinfo $network_extralibs
-    check_func getservbyport $network_extralibs
     check_func inet_aton $network_extralibs
 
     check_type netdb.h "struct addrinfo"
@@ -4422,6 +4422,7 @@ enabled libgsm            && { for gsm_hdr in "gsm.h" "gsm/gsm.h"; do
                                    check_lib "${gsm_hdr}" gsm_create -lgsm && break;
                                done || die "ERROR: libgsm not found"; }
 enabled libilbc           && require libilbc ilbc.h WebRtcIlbcfix_InitDecode -lilbc
+enabled libkvazaar        && require_pkg_config "kvazaar >= 0.7.1" kvazaar.h kvz_api_get
 enabled libmfx            && require_pkg_config libmfx "mfx/mfxvideo.h" MFXInit
 enabled libmp3lame        && require "libmp3lame >= 3.98.3" lame/lame.h lame_set_VBR_quality -lmp3lame
 enabled libopencore_amrnb && require libopencore_amrnb opencore-amrnb/interf_dec.h Decoder_Interface_init -lopencore-amrnb
@@ -4653,10 +4654,14 @@ enabled xmm_clobber_test &&
                   -Wl,--wrap,sws_scale ||
     disable xmm_clobber_test
 
-echo "X{};" > $TMPV
+echo "X { local: *; };" > $TMPV
 if test_ldflags -Wl,--version-script,$TMPV; then
     append SHFLAGS '-Wl,--version-script,\$(SUBDIR)lib\$(NAME).ver'
-    check_cc <<EOF && enable symver_asm_label
+elif test_ldflags -Wl,-M,$TMPV; then
+    append SHFLAGS '-Wl,-M,\$(SUBDIR)lib\$(NAME).ver-sol2'
+fi
+
+check_cc <<EOF && enable symver_asm_label
 void ff_foo(void) __asm__ ("av_foo@VERSION");
 void ff_foo(void) { ${inline_asm+__asm__($quotes);} }
 EOF
@@ -4664,7 +4669,6 @@ EOF
 __asm__(".symver ff_foo,av_foo@VERSION");
 void ff_foo(void) {}
 EOF
-fi
 
 if [ -z "$optflags" ]; then
     if enabled small; then

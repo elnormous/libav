@@ -962,8 +962,9 @@ static int load_input_picture(MpegEncContext *s, const AVFrame *pic_arg)
     Picture *pic = NULL;
     int64_t pts;
     int i, display_picture_number = 0, ret;
-    const int encoding_delay = s->max_b_frames ? s->max_b_frames :
-                                                 (s->low_delay ? 0 : 1);
+    int encoding_delay = s->max_b_frames ? s->max_b_frames
+                                         : (s->low_delay ? 0 : 1);
+    int flush_offset = 1;
     int direct = 1;
 
     if (pic_arg) {
@@ -997,9 +998,7 @@ static int load_input_picture(MpegEncContext *s, const AVFrame *pic_arg)
                 pts = display_picture_number;
             }
         }
-    }
 
-    if (pic_arg) {
         if (!pic_arg->buf[0] ||
             pic_arg->linesize[0] != s->linesize ||
             pic_arg->linesize[1] != s->uvlinesize ||
@@ -1077,11 +1076,22 @@ static int load_input_picture(MpegEncContext *s, const AVFrame *pic_arg)
 
         pic->f->display_picture_number = display_picture_number;
         pic->f->pts = pts; // we set this here to avoid modifiying pic_arg
+    } else {
+        /* Flushing: When we have not received enough input frames,
+         * ensure s->input_picture[0] contains the first picture */
+        for (flush_offset = 0; flush_offset < encoding_delay + 1; flush_offset++)
+            if (s->input_picture[flush_offset])
+                break;
+
+        if (flush_offset <= 1)
+            flush_offset = 1;
+        else
+            encoding_delay = encoding_delay - flush_offset + 1;
     }
 
     /* shift buffer entries */
-    for (i = 1; i < MAX_PICTURE_COUNT /*s->encoding_delay + 1*/; i++)
-        s->input_picture[i - 1] = s->input_picture[i];
+    for (i = flush_offset; i < MAX_PICTURE_COUNT /*s->encoding_delay + 1*/; i++)
+        s->input_picture[i - flush_offset] = s->input_picture[i];
 
     s->input_picture[encoding_delay] = (Picture*) pic;
 
@@ -1136,7 +1146,7 @@ static int encode_frame(AVCodecContext *c, AVFrame *frame)
         return ret;
 
     ret = pkt.size;
-    av_free_packet(&pkt);
+    av_packet_unref(&pkt);
     return ret;
 }
 
@@ -1382,12 +1392,13 @@ static int select_input_picture(MpegEncContext *s)
         }
     }
 no_output_pic:
+    ff_mpeg_unref_picture(s->avctx, &s->new_picture);
+
     if (s->reordered_input_picture[0]) {
         s->reordered_input_picture[0]->reference =
            s->reordered_input_picture[0]->f->pict_type !=
                AV_PICTURE_TYPE_B ? 3 : 0;
 
-        ff_mpeg_unref_picture(s->avctx, &s->new_picture);
         if ((ret = ff_mpeg_ref_picture(s->avctx, &s->new_picture, s->reordered_input_picture[0])))
             return ret;
 
@@ -1428,8 +1439,6 @@ no_output_pic:
             return ret;
 
         s->picture_number = s->new_picture.f->display_picture_number;
-    } else {
-        ff_mpeg_unref_picture(s->avctx, &s->new_picture);
     }
     return 0;
 }

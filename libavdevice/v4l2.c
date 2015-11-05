@@ -508,7 +508,7 @@ static int mmap_read_frame(AVFormatContext *ctx, AVPacket *pkt)
         if (res < 0) {
             res = AVERROR(errno);
             av_log(ctx, AV_LOG_ERROR, "ioctl(VIDIOC_QBUF)\n");
-            av_free_packet(pkt);
+            av_packet_unref(pkt);
             return res;
         }
         avpriv_atomic_int_add_and_fetch(&s->buffers_queued, 1);
@@ -828,8 +828,8 @@ static int v4l2_read_header(AVFormatContext *s1)
         return res;
 
     st->codec->pix_fmt = fmt_v4l2ff(desired_format, codec_id);
-    s->frame_size =
-        avpicture_get_size(st->codec->pix_fmt, s->width, s->height);
+    s->frame_size = av_image_get_buffer_size(st->codec->pix_fmt,
+                                             s->width, s->height, 1);
 
     if ((res = mmap_init(s1)) ||
         (res = mmap_start(s1)) < 0) {

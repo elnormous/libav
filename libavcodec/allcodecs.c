@@ -75,7 +75,6 @@ void avcodec_register_all(void)
 
     /* hardware accelerators */
     REGISTER_HWACCEL(H263_VAAPI,        h263_vaapi);
-    REGISTER_HWACCEL(H263_VDPAU,        h263_vdpau);
     REGISTER_HWACCEL(H264_D3D11VA,      h264_d3d11va);
     REGISTER_HWACCEL(H264_DXVA2,        h264_dxva2);
     REGISTER_HWACCEL(H264_MMAL,         h264_mmal);
@@ -243,6 +242,7 @@ void avcodec_register_all(void)
     REGISTER_DECODER(RL2,               rl2);
     REGISTER_ENCDEC (ROQ,               roq);
     REGISTER_DECODER(RPZA,              rpza);
+    REGISTER_DECODER(RSCC,              rscc);
     REGISTER_ENCDEC (RV10,              rv10);
     REGISTER_ENCDEC (RV20,              rv20);
     REGISTER_DECODER(RV30,              rv30);
@@ -292,6 +292,7 @@ void avcodec_register_all(void)
     REGISTER_DECODER(VP9,               vp9);
     REGISTER_DECODER(VQA,               vqa);
     REGISTER_DECODER(WEBP,              webp);
+    REGISTER_ENCODER(WRAPPED_AVFRAME,   wrapped_avframe);
     REGISTER_ENCDEC (WMV1,              wmv1);
     REGISTER_ENCDEC (WMV2,              wmv2);
     REGISTER_DECODER(WMV3,              wmv3);
@@ -490,6 +491,7 @@ void avcodec_register_all(void)
     REGISTER_ENCODER(LIBOPENH264,       libopenh264);
     REGISTER_ENCODER(H264_NVENC,        h264_nvenc);
     REGISTER_ENCODER(H264_QSV,          h264_qsv);
+    REGISTER_ENCODER(LIBKVAZAAR,        libkvazaar);
     REGISTER_ENCODER(HEVC_NVENC,        hevc_nvenc);
     REGISTER_ENCODER(HEVC_QSV,          hevc_qsv);
     REGISTER_ENCODER(MPEG2_QSV,         mpeg2_qsv);

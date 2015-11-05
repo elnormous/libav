@@ -416,12 +416,8 @@ int ff_interleave_add_packet(AVFormatContext *s, AVPacket *pkt,
     this_pktl      = av_mallocz(sizeof(AVPacketList));
     if (!this_pktl)
         return AVERROR(ENOMEM);
-    this_pktl->pkt = *pkt;
-    pkt->buf       = NULL;
-    pkt->side_data = NULL;
-    pkt->side_data_elems = 0;
-    // Duplicate the packet if it uses non-allocated memory
-    if ((ret = av_dup_packet(&this_pktl->pkt)) < 0) {
+
+    if ((ret = av_packet_ref(&this_pktl->pkt, pkt)) < 0) {
         av_free(this_pktl);
         return ret;
     }
@@ -449,6 +445,8 @@ next_non_null:
 
     s->streams[pkt->stream_index]->last_in_packet_buffer =
         *next_point                                      = this_pktl;
+
+    av_packet_unref(pkt);
 
     return 0;
 }
@@ -544,7 +542,7 @@ static int interleave_packet(AVFormatContext *s, AVPacket *out, AVPacket *in, in
     if (s->oformat->interleave_packet) {
         int ret = s->oformat->interleave_packet(s, out, in, flush);
         if (in)
-            av_free_packet(in);
+            av_packet_unref(in);
         return ret;
     } else
         return ff_interleave_packet_per_dts(s, out, in, flush);
@@ -590,7 +588,7 @@ int av_interleaved_write_frame(AVFormatContext *s, AVPacket *pkt)
         if (ret >= 0)
             s->streams[opkt.stream_index]->nb_frames++;
 
-        av_free_packet(&opkt);
+        av_packet_unref(&opkt);
 
         if (ret < 0)
             return ret;
@@ -616,7 +614,7 @@ int av_write_trailer(AVFormatContext *s)
         if (ret >= 0)
             s->streams[pkt.stream_index]->nb_frames++;
 
-        av_free_packet(&pkt);
+        av_packet_unref(&pkt);
 
         if (ret < 0)
             goto fail;
