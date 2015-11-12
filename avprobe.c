@@ -29,6 +29,7 @@
 #include "libavutil/pixdesc.h"
 #include "libavutil/dict.h"
 #include "libavutil/libm.h"
+#include "libavutil/time.h"
 #include "libavdevice/avdevice.h"
 #include "cmdutils.h"
 
