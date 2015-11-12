@@ -563,6 +563,7 @@ static void show_packet(AVFormatContext *fmt_ctx, AVPacket *pkt)
     AVStream *st = fmt_ctx->streams[pkt->stream_index];
 
     probe_object_header("packet");
+    probe_str("current_time", ts_value_string(val_str, sizeof(val_str), av_gettime()));
     probe_str("codec_type", media_type_string(st->codec->codec_type));
     probe_int("stream_index", pkt->stream_index);
     probe_str("pts", ts_value_string(val_str, sizeof(val_str), pkt->pts));
