@@ -550,9 +550,15 @@ static void show_packet(AVFormatContext *fmt_ctx, AVPacket *pkt)
 {
     char val_str[128];
     AVStream *st = fmt_ctx->streams[pkt->stream_index];
-
-    probe_object_header("packet");
-    probe_str("current_time", ts_value_string(val_str, sizeof(val_str), av_gettime()));
+    time_t t;
+    struct tm *tmp;
+    
+    t = time(NULL);
+    tmp = localtime(&t);
+    strftime(val_str, sizeof(val_str), "%Y-%m-%d %H:%M:%S", tmp);
+    probe_str("current_time", val_str);
+    
+    
     probe_str("codec_type", media_type_string(st->codec->codec_type));
     probe_int("stream_index", pkt->stream_index);
     probe_str("pts", ts_value_string(val_str, sizeof(val_str), pkt->pts));
@@ -570,7 +576,6 @@ static void show_packet(AVFormatContext *fmt_ctx, AVPacket *pkt)
                                       pkt->size, unit_byte_str));
     probe_int("pos", pkt->pos);
     probe_str("flags", pkt->flags & AV_PKT_FLAG_KEY ? "K" : "_");
-    probe_object_footer("packet");
 }
 
 static void show_packets(AVFormatContext *fmt_ctx)
