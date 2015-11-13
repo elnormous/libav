@@ -238,22 +238,17 @@ static void json_print_array_header(const char *name, int plain_values)
 {
     if (octx.prefix[octx.level -1].nb_elems)
         avio_printf(probe_out, ",");
-    AVP_INDENT();
     avio_printf(probe_out, "\"%s\":", name);
     avio_printf(probe_out, "[");
 }
 
 static void json_print_array_footer(const char *name, int plain_values)
 {
-    AVP_INDENT();
     avio_printf(probe_out, "]");
 }
 
 static void json_print_object_header(const char *name)
 {
-    if (octx.prefix[octx.level -1].nb_elems)
-        avio_printf(probe_out, ",");
-    AVP_INDENT();
     if (octx.prefix[octx.level -1].type == OBJECT)
         avio_printf(probe_out, "\"%s\":", name);
     avio_printf(probe_out, "{");
@@ -261,7 +256,6 @@ static void json_print_object_header(const char *name)
 
 static void json_print_object_footer(const char *name)
 {
-    AVP_INDENT();
     avio_printf(probe_out, "}\n");
 }
 
@@ -270,13 +264,10 @@ static void json_print_integer(const char *key, int64_t value)
     if (key) {
         if (octx.prefix[octx.level -1].nb_elems)
             avio_printf(probe_out, ",");
-        AVP_INDENT();
         avio_printf(probe_out, "\"%s\":", key);
     } else {
         if (octx.prefix[octx.level -1].nb_elems)
             avio_printf(probe_out, ",");
-        else
-            AVP_INDENT();
     }
     avio_printf(probe_out, "%"PRId64, value);
 }
@@ -309,7 +300,6 @@ static void json_print_string(const char *key, const char *value)
 {
     if (octx.prefix[octx.level -1].nb_elems)
         avio_printf(probe_out, ",");
-    AVP_INDENT();
     avio_w8(probe_out, '\"');
     json_escape_print(key);
     avio_printf(probe_out, "\":\"");
@@ -588,12 +578,10 @@ static void show_packets(AVFormatContext *fmt_ctx)
     AVPacket pkt;
 
     av_init_packet(&pkt);
-    probe_array_header("packets", 0);
     while (!av_read_frame(fmt_ctx, &pkt)) {
         show_packet(fmt_ctx, &pkt);
         av_packet_unref(&pkt);
     }
-    probe_array_footer("packets", 0);
 }
 
 static void show_stream(AVFormatContext *fmt_ctx, int stream_idx)
