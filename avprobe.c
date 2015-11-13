@@ -262,7 +262,7 @@ static void json_print_object_header(const char *name)
 static void json_print_object_footer(const char *name)
 {
     AVP_INDENT();
-    avio_printf(probe_out, "}");
+    avio_printf(probe_out, "}\n");
 }
 
 static void json_print_integer(const char *key, int64_t value)
