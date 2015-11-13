@@ -553,6 +553,8 @@ static void show_packet(AVFormatContext *fmt_ctx, AVPacket *pkt)
     time_t t;
     struct tm *tmp;
     
+    probe_object_header("packet");
+
     t = time(NULL);
     tmp = localtime(&t);
     strftime(val_str, sizeof(val_str), "%Y-%m-%d %H:%M:%S", tmp);
@@ -576,6 +578,7 @@ static void show_packet(AVFormatContext *fmt_ctx, AVPacket *pkt)
                                       pkt->size, unit_byte_str));
     probe_int("pos", pkt->pos);
     probe_str("flags", pkt->flags & AV_PKT_FLAG_KEY ? "K" : "_");
+    probe_object_footer("packet");
 }
 
 static void show_packets(AVFormatContext *fmt_ctx)
