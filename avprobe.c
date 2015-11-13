@@ -231,21 +231,20 @@ static void json_print_header(void)
 }
 static void json_print_footer(void)
 {
-    avio_printf(probe_out, "}\n");
+    avio_printf(probe_out, "}");
 }
 
 static void json_print_array_header(const char *name, int plain_values)
 {
     if (octx.prefix[octx.level -1].nb_elems)
-        avio_printf(probe_out, ",\n");
+        avio_printf(probe_out, ",");
     AVP_INDENT();
-    avio_printf(probe_out, "\"%s\" : ", name);
-    avio_printf(probe_out, "[\n");
+    avio_printf(probe_out, "\"%s\":", name);
+    avio_printf(probe_out, "[");
 }
 
 static void json_print_array_footer(const char *name, int plain_values)
 {
-    avio_printf(probe_out, "\n");
     AVP_INDENT();
     avio_printf(probe_out, "]");
 }
@@ -253,16 +252,15 @@ static void json_print_array_footer(const char *name, int plain_values)
 static void json_print_object_header(const char *name)
 {
     if (octx.prefix[octx.level -1].nb_elems)
-        avio_printf(probe_out, ",\n");
+        avio_printf(probe_out, ",");
     AVP_INDENT();
     if (octx.prefix[octx.level -1].type == OBJECT)
-        avio_printf(probe_out, "\"%s\" : ", name);
-    avio_printf(probe_out, "{\n");
+        avio_printf(probe_out, "\"%s\":", name);
+    avio_printf(probe_out, "{");
 }
 
 static void json_print_object_footer(const char *name)
 {
-    avio_printf(probe_out, "\n");
     AVP_INDENT();
     avio_printf(probe_out, "}");
 }
@@ -271,12 +269,12 @@ static void json_print_integer(const char *key, int64_t value)
 {
     if (key) {
         if (octx.prefix[octx.level -1].nb_elems)
-            avio_printf(probe_out, ",\n");
+            avio_printf(probe_out, ",");
         AVP_INDENT();
-        avio_printf(probe_out, "\"%s\" : ", key);
+        avio_printf(probe_out, "\"%s\":", key);
     } else {
         if (octx.prefix[octx.level -1].nb_elems)
-            avio_printf(probe_out, ", ");
+            avio_printf(probe_out, ",");
         else
             AVP_INDENT();
     }
@@ -310,11 +308,11 @@ static void json_escape_print(const char *s)
 static void json_print_string(const char *key, const char *value)
 {
     if (octx.prefix[octx.level -1].nb_elems)
-        avio_printf(probe_out, ",\n");
+        avio_printf(probe_out, ",");
     AVP_INDENT();
     avio_w8(probe_out, '\"');
     json_escape_print(key);
-    avio_printf(probe_out, "\" : \"");
+    avio_printf(probe_out, "\":\"");
     json_escape_print(value);
     avio_w8(probe_out, '\"');
 }
