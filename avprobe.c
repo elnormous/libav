@@ -227,11 +227,11 @@ static void ini_print_string(const char *key, const char *value)
 
 static void json_print_header(void)
 {
-    avio_printf(probe_out, "{");
+    
 }
 static void json_print_footer(void)
 {
-    avio_printf(probe_out, "}");
+    
 }
 
 static void json_print_array_header(const char *name, int plain_values)
@@ -249,8 +249,6 @@ static void json_print_array_footer(const char *name, int plain_values)
 
 static void json_print_object_header(const char *name)
 {
-    if (octx.prefix[octx.level -1].type == OBJECT)
-        avio_printf(probe_out, "\"%s\":", name);
     avio_printf(probe_out, "{");
 }
 
@@ -578,6 +576,7 @@ static void show_packet(AVFormatContext *fmt_ctx, AVPacket *pkt)
                                       pkt->size, unit_byte_str));
     probe_int("pos", pkt->pos);
     probe_str("flags", pkt->flags & AV_PKT_FLAG_KEY ? "K" : "_");
+    
     probe_object_footer("packet");
 }
 
