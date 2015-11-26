@@ -1,6 +1,7 @@
 include config.mak
 
 vpath %.c    $(SRC_PATH)
+vpath %.m    $(SRC_PATH)
 vpath %.h    $(SRC_PATH)
 vpath %.S    $(SRC_PATH)
 vpath %.asm  $(SRC_PATH)
@@ -26,6 +27,8 @@ IFLAGS     := -I. -I$(SRC_PATH)
 CPPFLAGS   := $(IFLAGS) $(CPPFLAGS)
 CFLAGS     += $(ECFLAGS)
 CCFLAGS     = $(CPPFLAGS) $(CFLAGS)
+OBJCFLAGS  += $(EOBJCFLAGS)
+OBJCCFLAGS  = $(CPPFLAGS) $(CFLAGS) $(OBJCFLAGS)
 ASFLAGS    := $(CPPFLAGS) $(ASFLAGS)
 YASMFLAGS  += $(IFLAGS:%=%/) -Pconfig.asm
 HOSTCCFLAGS = $(IFLAGS) $(HOSTCPPFLAGS) $(HOSTCFLAGS)
@@ -38,6 +41,7 @@ endef
 
 COMPILE_C = $(call COMPILE,CC)
 COMPILE_S = $(call COMPILE,AS)
+COMPILE_M = $(call COMPILE,OBJCC)
 COMPILE_HOSTC = $(call COMPILE,HOSTCC)
 
 %.o: %.c
@@ -45,6 +49,9 @@ COMPILE_HOSTC = $(call COMPILE,HOSTCC)
 
 %.o: %.S
 	$(COMPILE_S)
+
+%.o: %.m
+	$(COMPILE_M)
 
 %_host.o: %.c
 	$(COMPILE_HOSTC)
@@ -56,7 +63,9 @@ COMPILE_HOSTC = $(call COMPILE,HOSTCC)
 	$(Q)echo '#include "$*.h"' >$@
 
 %.ver: %.v
-	$(Q)sed 's/$$MAJOR/$($(basename $(@F))_VERSION_MAJOR)/' $^ > $@
+	$(Q)sed 's/$$MAJOR/$($(basename $(@F))_VERSION_MAJOR)/' $^ | sed -e 's/:/:\
+/' -e 's/; /;\
+/g' > $@
 
 %.c %.h: TAG = GEN
 
@@ -76,6 +85,7 @@ OBJS-avconv                   += avconv_opt.o avconv_filter.o
 OBJS-avconv-$(HAVE_VDPAU_X11) += avconv_vdpau.o
 OBJS-avconv-$(HAVE_DXVA2_LIB) += avconv_dxva2.o
 OBJS-avconv-$(CONFIG_VDA)     += avconv_vda.o
+OBJS-avconv-$(CONFIG_LIBMFX)  += avconv_qsv.o
 
 TESTTOOLS   = audiogen videogen rotozoom tiny_psnr base64
 HOSTPROGS  := $(TESTTOOLS:%=tests/%) doc/print_options

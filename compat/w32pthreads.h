@@ -39,6 +39,11 @@
 #include <windows.h>
 #include <process.h>
 
+#if _WIN32_WINNT < 0x0600 && defined(__MINGW32__)
+#undef MemoryBarrier
+#define MemoryBarrier __sync_synchronize
+#endif
+
 #include "libavutil/attributes.h"
 #include "libavutil/internal.h"
 #include "libavutil/mem.h"

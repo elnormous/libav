@@ -126,6 +126,7 @@ static int thp_read_header(AVFormatContext *s)
             st->codec->codec_tag = 0;  /* no fourcc */
             st->codec->channels    = avio_rb32(pb); /* numChannels.  */
             st->codec->sample_rate = avio_rb32(pb); /* Frequency.  */
+            st->duration           = avio_rb32(pb);
 
             avpriv_set_pts_info(st, 64, 1, st->codec->sample_rate);
 
@@ -168,7 +169,7 @@ static int thp_read_packet(AVFormatContext *s,
 
         ret = av_get_packet(pb, pkt, size);
         if (ret != size) {
-            av_free_packet(pkt);
+            av_packet_unref(pkt);
             return AVERROR(EIO);
         }
 
@@ -176,7 +177,7 @@ static int thp_read_packet(AVFormatContext *s,
     } else {
         ret = av_get_packet(pb, pkt, thp->audiosize);
         if (ret != thp->audiosize) {
-            av_free_packet(pkt);
+            av_packet_unref(pkt);
             return AVERROR(EIO);
         }
 

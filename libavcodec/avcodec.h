@@ -300,6 +300,7 @@ enum AVCodecID {
     AV_CODEC_ID_DDS,
     AV_CODEC_ID_DXV,
     AV_CODEC_ID_SCREENPRESSO,
+    AV_CODEC_ID_RSCC,
 
     /* various PCM "codecs" */
     AV_CODEC_ID_FIRST_AUDIO = 0x10000,     ///< A dummy id pointing at the start of audio codecs
@@ -477,6 +478,7 @@ enum AVCodecID {
     AV_CODEC_ID_MPEG4SYSTEMS = 0x20001, /**< _FAKE_ codec to indicate a MPEG-4 Systems
                                 * stream (only used by libavformat) */
     AV_CODEC_ID_FFMETADATA = 0x21000,   ///< Dummy codec for streams containing only metadata information.
+    AV_CODEC_ID_WRAPPED_AVFRAME = 0x21001, ///< Passthrough codec, AVFrames wrapped in AVPacket
 };
 
 /**
@@ -697,11 +699,11 @@ typedef struct RcOverride{
  * interlaced motion estimation
  */
 #define AV_CODEC_FLAG_INTERLACED_ME   (1 << 29)
+#define AV_CODEC_FLAG_CLOSED_GOP      (1 << 31)
+
 /**
  * Allow non spec compliant speedup tricks.
  */
-#define AV_CODEC_FLAG_CLOSED_GOP      (1 << 31)
-
 #define AV_CODEC_FLAG2_FAST           (1 <<  0)
 /**
  * Skip bitstream encoding.
@@ -1127,6 +1129,14 @@ enum AVPacketSideDataType {
      * and FF_LAMBDA_MAX (bad).
      */
     AV_PKT_DATA_QUALITY_FACTOR,
+
+    /**
+     * This side data contains an integer value representing the stream index
+     * of a "fallback" track.  A fallback track indicates an alternate
+     * track to use when the current track can not be decoded for some reason.
+     * e.g. no decoder available for codec.
+     */
+    AV_PKT_DATA_FALLBACK_TRACK,
 };
 
 typedef struct AVPacketSideData {
@@ -1149,15 +1159,19 @@ typedef struct AVPacketSideData {
  * ABI. Thus it may be allocated on stack and no new fields can be added to it
  * without libavcodec and libavformat major bump.
  *
- * The semantics of data ownership depends on the buf or destruct (deprecated)
- * fields. If either is set, the packet data is dynamically allocated and is
- * valid indefinitely until av_free_packet() is called (which in turn calls
- * av_buffer_unref()/the destruct callback to free the data). If neither is set,
- * the packet data is typically backed by some static buffer somewhere and is
- * only valid for a limited time (e.g. until the next read call when demuxing).
+ * The semantics of data ownership depends on the buf field.
+ * If it is set, the packet data is dynamically allocated and is
+ * valid indefinitely until a call to av_packet_unref() reduces the
+ * reference count to 0.
  *
- * The side data is always allocated with av_malloc() and is freed in
- * av_free_packet().
+ * If the buf field is not set av_packet_ref() would make a copy instead
+ * of increasing the reference count.
+ *
+ * The side data is always allocated with av_malloc(), copied by
+ * av_packet_ref() and freed by av_packet_unref().
+ *
+ * @see av_packet_ref
+ * @see av_packet_unref
  */
 typedef struct AVPacket {
     /**
@@ -2358,13 +2372,19 @@ typedef struct AVCodecContext {
      */
     int64_t timecode_frame_start;
 
+#if FF_API_RTP_CALLBACK
+    /**
+     * @deprecated unused
+     */
     /* The RTP callback: This function is called    */
     /* every time the encoder has a packet to send. */
     /* It depends on the encoder if the data starts */
     /* with a Start Code (it should). H.263 does.   */
     /* mb_nb contains the number of macroblocks     */
     /* encoded in the RTP payload.                  */
+    attribute_deprecated
     void (*rtp_callback)(struct AVCodecContext *avctx, void *data, int size, int mb_nb);
+#endif
 
     int rtp_payload_size;   /* The size of the RTP payload: the coder will  */
                             /* do its best to deliver a chunk with size     */
@@ -3164,6 +3184,7 @@ typedef struct AVHWAccel {
  * @}
  */
 
+#if FF_API_AVPICTURE
 /**
  * @defgroup lavc_picture AVPicture
  *
@@ -3174,15 +3195,19 @@ typedef struct AVHWAccel {
 /**
  * four components are given, that's all.
  * the last component is alpha
+ * @deprecated Use the imgutils functions
  */
 typedef struct AVPicture {
+    attribute_deprecated
     uint8_t *data[AV_NUM_DATA_POINTERS];
+    attribute_deprecated
     int linesize[AV_NUM_DATA_POINTERS];     ///< number of bytes per line
 } AVPicture;
 
 /**
  * @}
  */
+#endif
 
 #define AVPALETTE_SIZE 1024
 #define AVPALETTE_COUNT 256
@@ -3214,11 +3239,20 @@ typedef struct AVSubtitleRect {
     int h;         ///< height           of pict, undefined when pict is not set
     int nb_colors; ///< number of colors in pict, undefined when pict is not set
 
+#if FF_API_AVPICTURE
+    /**
+     * @deprecated unused
+     */
+    attribute_deprecated
+    AVPicture pict;
+#endif
     /**
      * data+linesize for the bitmap of this subtitle.
-     * can be set for text/ass as well once they where rendered
+     * Can be set for text/ass as well once they are rendered.
      */
-    AVPicture pict;
+    uint8_t *data[4];
+    int linesize[4];
+
     enum AVSubtitleType type;
 
     char *text;                     ///< 0 terminated plain UTF-8 text
@@ -3408,6 +3442,40 @@ void avsubtitle_free(AVSubtitle *sub);
  */
 
 /**
+ * Allocate an AVPacket and set its fields to default values.  The resulting
+ * struct must be freed using av_packet_free().
+ *
+ * @return An AVPacket filled with default values or NULL on failure.
+ *
+ * @note this only allocates the AVPacket itself, not the data buffers. Those
+ * must be allocated through other means such as av_new_packet.
+ *
+ * @see av_new_packet
+ */
+AVPacket *av_packet_alloc(void);
+
+/**
+ * Create a new packet that references the same data as src.
+ *
+ * This is a shortcut for av_packet_alloc()+av_packet_ref().
+ *
+ * @return newly created AVPacket on success, NULL on error.
+ *
+ * @see av_packet_alloc
+ * @see av_packet_ref
+ */
+AVPacket *av_packet_clone(AVPacket *src);
+
+/**
+ * Free the packet, if the packet is reference counted, it will be
+ * unreferenced first.
+ *
+ * @param packet packet to be freed. The pointer will be set to NULL.
+ * @note passing NULL is a no-op.
+ */
+void av_packet_free(AVPacket **pkt);
+
+/**
  * Initialize optional fields of a packet with default values.
  *
  * Note, this does not touch the data and size members, which have to be
@@ -3458,19 +3526,25 @@ int av_grow_packet(AVPacket *pkt, int grow_by);
  */
 int av_packet_from_data(AVPacket *pkt, uint8_t *data, int size);
 
+#if FF_API_AVPACKET_OLD_API
 /**
  * @warning This is a hack - the packet memory allocation stuff is broken. The
  * packet is allocated if it was not really allocated.
+ *
+ * @deprecated Use av_packet_ref
  */
+attribute_deprecated
 int av_dup_packet(AVPacket *pkt);
-
 /**
  * Free a packet.
  *
+ * @deprecated Use av_packet_unref
+ *
  * @param pkt packet to free
  */
+attribute_deprecated
 void av_free_packet(AVPacket *pkt);
-
+#endif
 /**
  * Allocate new information of a packet.
  *
@@ -4056,8 +4130,7 @@ AVCodec *avcodec_find_encoder_by_name(const char *name);
  *                  output packet.
  *
  *                  If this function fails or produces no output, avpkt will be
- *                  freed using av_free_packet() (i.e. avpkt->destruct will be
- *                  called to free the user supplied buffer).
+ *                  freed using av_packet_unref().
  * @param[in] frame AVFrame containing the raw audio data to be encoded.
  *                  May be NULL when flushing an encoder that has the
  *                  AV_CODEC_CAP_DELAY capability set.
@@ -4098,8 +4171,7 @@ int avcodec_encode_audio2(AVCodecContext *avctx, AVPacket *avpkt,
  *                  caller, he is responsible for freeing it.
  *
  *                  If this function fails or produces no output, avpkt will be
- *                  freed using av_free_packet() (i.e. avpkt->destruct will be
- *                  called to free the user supplied buffer).
+ *                  freed using av_packet_unref().
  * @param[in] frame AVFrame containing the raw video data to be encoded.
  *                  May be NULL when flushing an encoder that has the
  *                  AV_CODEC_CAP_DELAY capability set.
@@ -4122,81 +4194,70 @@ int avcodec_encode_subtitle(AVCodecContext *avctx, uint8_t *buf, int buf_size,
  * @}
  */
 
+#if FF_API_AVPICTURE
 /**
  * @addtogroup lavc_picture
  * @{
  */
 
 /**
- * Allocate memory for a picture.  Call avpicture_free() to free it.
- *
- * @see avpicture_fill()
- *
- * @param picture the picture to be filled in
- * @param pix_fmt the format of the picture
- * @param width the width of the picture
- * @param height the height of the picture
- * @return zero if successful, a negative value if not
+ * @deprecated unused
  */
+attribute_deprecated
 int avpicture_alloc(AVPicture *picture, enum AVPixelFormat pix_fmt, int width, int height);
 
 /**
- * Free a picture previously allocated by avpicture_alloc().
- * The data buffer used by the AVPicture is freed, but the AVPicture structure
- * itself is not.
- *
- * @param picture the AVPicture to be freed
+ * @deprecated unused
  */
+attribute_deprecated
 void avpicture_free(AVPicture *picture);
 
 /**
- * Fill in the AVPicture fields, always assume a linesize alignment of 1.
- *
- * @see av_image_fill_arrays().
+ * @deprecated use av_image_fill_arrays() instead.
  */
+attribute_deprecated
 int avpicture_fill(AVPicture *picture, uint8_t *ptr,
                    enum AVPixelFormat pix_fmt, int width, int height);
 
 /**
- * Copy pixel data from an AVPicture into a buffer, always assume a
- * linesize alignment of 1.
- *
- * @see av_image_copy_to_buffer().
+ * @deprecated use av_image_copy_to_buffer() instead.
  */
+attribute_deprecated
 int avpicture_layout(const AVPicture* src, enum AVPixelFormat pix_fmt,
                      int width, int height,
                      unsigned char *dest, int dest_size);
 
 /**
- * Calculate the size in bytes that a picture of the given width and height
- * would occupy if stored in the given picture format.
- * Always assume a linesize alignment of 1.
- *
- * @see av_image_get_buffer_size().
+ * @deprecated use av_image_get_buffer_size() instead.
  */
+attribute_deprecated
 int avpicture_get_size(enum AVPixelFormat pix_fmt, int width, int height);
 
 /**
- * Copy image src to dst. Wraps av_picture_data_copy() above.
+ * @deprecated av_image_copy() instead.
  */
+attribute_deprecated
 void av_picture_copy(AVPicture *dst, const AVPicture *src,
                      enum AVPixelFormat pix_fmt, int width, int height);
 
 /**
- * Crop image top and left side.
+ * @deprecated unused
  */
+attribute_deprecated
 int av_picture_crop(AVPicture *dst, const AVPicture *src,
                     enum AVPixelFormat pix_fmt, int top_band, int left_band);
 
 /**
- * Pad image.
+ * @deprecated unused
  */
+attribute_deprecated
 int av_picture_pad(AVPicture *dst, const AVPicture *src, int height, int width, enum AVPixelFormat pix_fmt,
             int padtop, int padbottom, int padleft, int padright, int *color);
 
 /**
  * @}
  */
+#endif
 
 /**
  * @defgroup lavc_misc Utility functions

@@ -589,7 +589,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
         int nnal, s, i;
 
         s = x264_encoder_headers(x4->enc, &nal, &nnal);
-        avctx->extradata = p = av_malloc(s);
+        avctx->extradata = p = av_mallocz(s + AV_INPUT_BUFFER_PADDING_SIZE);
         if (!p)
             return AVERROR(ENOMEM);
 
@@ -786,7 +786,7 @@ AVCodec ff_libx262_encoder = {
     .init             = X264_init,
     .encode2          = X264_frame,
     .close            = X264_close,
-    .capabilities     = CODEC_CAP_DELAY | CODEC_CAP_AUTO_THREADS,
+    .capabilities     = AV_CODEC_CAP_DELAY | AV_CODEC_CAP_AUTO_THREADS,
     .priv_class       = &X262_class,
     .defaults         = x264_defaults,
     .pix_fmts         = pix_fmts_8bit,

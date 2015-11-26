@@ -496,6 +496,12 @@ FF_ENABLE_DEPRECATION_WARNINGS
         }
     }
 
+    if (avctx->slices > 1 &&
+        (avctx->codec_id == AV_CODEC_ID_FLV1 || avctx->codec_id == AV_CODEC_ID_H261)) {
+        av_log(avctx, AV_LOG_ERROR, "Multiple slices are not supported by this codec\n");
+        return AVERROR(EINVAL);
+    }
+
     if (s->avctx->thread_count > 1         &&
         s->codec_id != AV_CODEC_ID_MPEG4      &&
         s->codec_id != AV_CODEC_ID_MPEG1VIDEO &&
@@ -512,9 +518,6 @@ FF_ENABLE_DEPRECATION_WARNINGS
                "patch welcome\n");
         return -1;
     }
-
-    if (s->avctx->thread_count > 1)
-        s->rtp_mode = 1;
 
     if (!avctx->time_base.den || !avctx->time_base.num) {
         av_log(avctx, AV_LOG_ERROR, "framerate not set\n");
@@ -758,6 +761,13 @@ FF_ENABLE_DEPRECATION_WARNINGS
     if ((CONFIG_H263P_ENCODER || CONFIG_RV20_ENCODER) && s->modified_quant)
         s->chroma_qscale_table = ff_h263_chroma_qscale_table;
 
+    if (s->slice_context_count > 1) {
+        s->rtp_mode = 1;
+
+        if (avctx->codec_id == AV_CODEC_ID_H263 || avctx->codec_id == AV_CODEC_ID_H263P)
+            s->h263_slice_structured = 1;
+    }
+
     s->quant_precision = 5;
 
     ff_set_cmp(&s->mecc, s->mecc.ildct_cmp,      s->avctx->ildct_cmp);
@@ -962,8 +972,9 @@ static int load_input_picture(MpegEncContext *s, const AVFrame *pic_arg)
     Picture *pic = NULL;
     int64_t pts;
     int i, display_picture_number = 0, ret;
-    const int encoding_delay = s->max_b_frames ? s->max_b_frames :
-                                                 (s->low_delay ? 0 : 1);
+    int encoding_delay = s->max_b_frames ? s->max_b_frames
+                                         : (s->low_delay ? 0 : 1);
+    int flush_offset = 1;
     int direct = 1;
 
     if (pic_arg) {
@@ -997,9 +1008,7 @@ static int load_input_picture(MpegEncContext *s, const AVFrame *pic_arg)
                 pts = display_picture_number;
             }
         }
-    }
 
-    if (pic_arg) {
         if (!pic_arg->buf[0] ||
             pic_arg->linesize[0] != s->linesize ||
             pic_arg->linesize[1] != s->uvlinesize ||
@@ -1077,11 +1086,22 @@ static int load_input_picture(MpegEncContext *s, const AVFrame *pic_arg)
 
         pic->f->display_picture_number = display_picture_number;
         pic->f->pts = pts; // we set this here to avoid modifiying pic_arg
+    } else {
+        /* Flushing: When we have not received enough input frames,
+         * ensure s->input_picture[0] contains the first picture */
+        for (flush_offset = 0; flush_offset < encoding_delay + 1; flush_offset++)
+            if (s->input_picture[flush_offset])
+                break;
+
+        if (flush_offset <= 1)
+            flush_offset = 1;
+        else
+            encoding_delay = encoding_delay - flush_offset + 1;
     }
 
     /* shift buffer entries */
-    for (i = 1; i < MAX_PICTURE_COUNT /*s->encoding_delay + 1*/; i++)
-        s->input_picture[i - 1] = s->input_picture[i];
+    for (i = flush_offset; i < MAX_PICTURE_COUNT /*s->encoding_delay + 1*/; i++)
+        s->input_picture[i - flush_offset] = s->input_picture[i];
 
     s->input_picture[encoding_delay] = (Picture*) pic;
 
@@ -1136,7 +1156,7 @@ static int encode_frame(AVCodecContext *c, AVFrame *frame)
         return ret;
 
     ret = pkt.size;
-    av_free_packet(&pkt);
+    av_packet_unref(&pkt);
     return ret;
 }
 
@@ -1382,12 +1402,13 @@ static int select_input_picture(MpegEncContext *s)
         }
     }
 no_output_pic:
+    ff_mpeg_unref_picture(s->avctx, &s->new_picture);
+
     if (s->reordered_input_picture[0]) {
         s->reordered_input_picture[0]->reference =
            s->reordered_input_picture[0]->f->pict_type !=
                AV_PICTURE_TYPE_B ? 3 : 0;
 
-        ff_mpeg_unref_picture(s->avctx, &s->new_picture);
         if ((ret = ff_mpeg_ref_picture(s->avctx, &s->new_picture, s->reordered_input_picture[0])))
             return ret;
 
@@ -1428,8 +1449,6 @@ no_output_pic:
             return ret;
 
         s->picture_number = s->new_picture.f->display_picture_number;
-    } else {
-        ff_mpeg_unref_picture(s->avctx, &s->new_picture);
     }
     return 0;
 }
@@ -2701,10 +2720,14 @@ static int encode_thread(AVCodecContext *c, void *arg){
                         }
                     }
 
+#if FF_API_RTP_CALLBACK
+FF_DISABLE_DEPRECATION_WARNINGS
                     if (s->avctx->rtp_callback){
                         int number_mb = (mb_y - s->resync_mb_y)*s->mb_width + mb_x - s->resync_mb_x;
                         s->avctx->rtp_callback(s->avctx, s->ptr_lastgob, current_packet_size, number_mb);
                     }
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
                     update_mb_info(s, 1);
 
                     switch(s->codec_id){
@@ -3179,6 +3202,8 @@ static int encode_thread(AVCodecContext *c, void *arg){
 
     write_slice_end(s);
 
+#if FF_API_RTP_CALLBACK
+FF_DISABLE_DEPRECATION_WARNINGS
     /* Send the last GOB if RTP */
     if (s->avctx->rtp_callback) {
         int number_mb = (mb_y - s->resync_mb_y)*s->mb_width - s->resync_mb_x;
@@ -3187,6 +3212,8 @@ static int encode_thread(AVCodecContext *c, void *arg){
         emms_c();
         s->avctx->rtp_callback(s->avctx, s->ptr_lastgob, pdif, number_mb);
     }
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
 
     return 0;
 }

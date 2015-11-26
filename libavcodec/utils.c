@@ -337,7 +337,8 @@ static int update_frame_pool(AVCodecContext *avctx, AVFrame *frame)
 
     switch (avctx->codec_type) {
     case AVMEDIA_TYPE_VIDEO: {
-        AVPicture picture;
+        uint8_t *data[4];
+        int linesize[4];
         int size[4] = { 0 };
         int w = frame->width;
         int h = frame->height;
@@ -352,27 +353,27 @@ static int update_frame_pool(AVCodecContext *avctx, AVFrame *frame)
         do {
             // NOTE: do not align linesizes individually, this breaks e.g. assumptions
             // that linesize[0] == 2*linesize[1] in the MPEG-encoder for 4:2:2
-            av_image_fill_linesizes(picture.linesize, avctx->pix_fmt, w);
+            av_image_fill_linesizes(linesize, avctx->pix_fmt, w);
             // increase alignment of w for next try (rhs gives the lowest bit set in w)
             w += w & ~(w - 1);
 
             unaligned = 0;
             for (i = 0; i < 4; i++)
-                unaligned |= picture.linesize[i] % pool->stride_align[i];
+                unaligned |= linesize[i] % pool->stride_align[i];
         } while (unaligned);
 
-        tmpsize = av_image_fill_pointers(picture.data, avctx->pix_fmt, h,
-                                         NULL, picture.linesize);
+        tmpsize = av_image_fill_pointers(data, avctx->pix_fmt, h,
+                                         NULL, linesize);
         if (tmpsize < 0)
             return -1;
 
-        for (i = 0; i < 3 && picture.data[i + 1]; i++)
-            size[i] = picture.data[i + 1] - picture.data[i];
-        size[i] = tmpsize - (picture.data[i] - picture.data[0]);
+        for (i = 0; i < 3 && data[i + 1]; i++)
+            size[i] = data[i + 1] - data[i];
+        size[i] = tmpsize - (data[i] - data[0]);
 
         for (i = 0; i < 4; i++) {
             av_buffer_pool_uninit(&pool->pools[i]);
-            pool->linesize[i] = picture.linesize[i];
+            pool->linesize[i] = linesize[i];
             if (size[i]) {
                 pool->pools[i] = av_buffer_pool_init(size[i] + 16, NULL);
                 if (!pool->pools[i]) {
@@ -845,7 +846,7 @@ int attribute_align_arg avcodec_open2(AVCodecContext *avctx, const AVCodec *code
         av_dict_copy(&tmp, *options, 0);
 
     /* If there is a user-supplied mutex locking routine, call it. */
-    if (!(codec->caps_internal & FF_CODEC_CAP_INIT_THREADSAFE)) {
+    if (!(codec->caps_internal & FF_CODEC_CAP_INIT_THREADSAFE) && codec->init) {
         if (lockmgr_cb) {
             if ((*lockmgr_cb)(&codec_mutex, AV_LOCK_OBTAIN))
                 return -1;
@@ -1086,7 +1087,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
 #endif
     }
 end:
-    if (!(codec->caps_internal & FF_CODEC_CAP_INIT_THREADSAFE)) {
+    if (!(codec->caps_internal & FF_CODEC_CAP_INIT_THREADSAFE) && codec->init) {
         entangled_thread_counter--;
 
         /* Release any user-supplied mutex. */
@@ -1199,7 +1200,7 @@ int attribute_align_arg avcodec_encode_audio2(AVCodecContext *avctx,
     *got_packet_ptr = 0;
 
     if (!(avctx->codec->capabilities & AV_CODEC_CAP_DELAY) && !frame) {
-        av_free_packet(avpkt);
+        av_packet_unref(avpkt);
         av_init_packet(avpkt);
         return 0;
     }
@@ -1275,7 +1276,7 @@ int attribute_align_arg avcodec_encode_audio2(AVCodecContext *avctx,
     }
 
     if (ret < 0 || !*got_packet_ptr) {
-        av_free_packet(avpkt);
+        av_packet_unref(avpkt);
         av_init_packet(avpkt);
         goto end;
     }
@@ -1306,7 +1307,7 @@ int attribute_align_arg avcodec_encode_video2(AVCodecContext *avctx,
     *got_packet_ptr = 0;
 
     if (!(avctx->codec->capabilities & AV_CODEC_CAP_DELAY) && !frame) {
-        av_free_packet(avpkt);
+        av_packet_unref(avpkt);
         av_init_packet(avpkt);
         avpkt->size = 0;
         return 0;
@@ -1334,7 +1335,7 @@ int attribute_align_arg avcodec_encode_video2(AVCodecContext *avctx,
     }
 
     if (ret < 0 || !*got_packet_ptr)
-        av_free_packet(avpkt);
+        av_packet_unref(avpkt);
 
     emms_c();
     return ret;
@@ -1586,10 +1587,10 @@ void avsubtitle_free(AVSubtitle *sub)
     int i;
 
     for (i = 0; i < sub->num_rects; i++) {
-        av_freep(&sub->rects[i]->pict.data[0]);
-        av_freep(&sub->rects[i]->pict.data[1]);
-        av_freep(&sub->rects[i]->pict.data[2]);
-        av_freep(&sub->rects[i]->pict.data[3]);
+        av_freep(&sub->rects[i]->data[0]);
+        av_freep(&sub->rects[i]->data[1]);
+        av_freep(&sub->rects[i]->data[2]);
+        av_freep(&sub->rects[i]->data[3]);
         av_freep(&sub->rects[i]->text);
         av_freep(&sub->rects[i]->ass);
         av_freep(&sub->rects[i]);
