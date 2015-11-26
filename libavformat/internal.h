@@ -90,6 +90,18 @@ struct AVFormatInternal {
      * Timebase for the timestamp offset.
      */
     AVRational offset_timebase;
+
+#if FF_API_COMPUTE_PKT_FIELDS2
+    int missing_ts_warning;
+#endif
+};
+
+struct AVStreamInternal {
+    /**
+     * Set to 1 if the codec allows reordering, so pts can be different
+     * from dts.
+     */
+    int reorder;
 };
 
 void ff_dynarray_add(intptr_t **tab_ptr, int *nb_ptr, intptr_t elem);
@@ -406,12 +418,5 @@ static inline int ff_rename(const char *oldpath, const char *newpath)
         return AVERROR(errno);
     return 0;
 }
-
-/**
- * Add new side data to a stream. If a side data of this type already exists, it
- * is replaced.
- */
-uint8_t *ff_stream_new_side_data(AVStream *st, enum AVPacketSideDataType type,
-                                 int size);
 
 #endif /* AVFORMAT_INTERNAL_H */
