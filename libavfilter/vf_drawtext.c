@@ -50,6 +50,7 @@
 #include "libavutil/time_internal.h"
 #include "libavutil/tree.h"
 #include "libavutil/lfg.h"
+#include "libavutil/time.h"
 #include "avfilter.h"
 #include "drawutils.h"
 #include "formats.h"
@@ -524,9 +525,25 @@ static inline int is_newline(uint32_t c)
 static int expand_strftime(DrawTextContext *s)
 {
     struct tm ltime;
-    time_t now   = time(0);
-    uint8_t *buf = s->expanded_text;
-    int buf_size = s->expanded_text_size;
+    time_t now     = time(0);
+    uint8_t *buf_millis;
+    int buf_millis_size = s->expanded_text_size;
+    uint8_t *buf   = s->expanded_text;
+    int buf_size   = s->expanded_text_size;
+    int64_t millis = av_gettime();
+    char millis_str[21];
+    snprintf(millis_str, sizeof(millis_str), "%"PRId64, millis);
+
+    if (buf_millis_size < sizeof(millis_str))
+        buf_millis_size = sizeof(millis_str);
+
+    buf_millis = av_malloc(buf_millis_size);
+
+    while ((buf_millis = av_realloc(buf_millis, buf_millis_size))) {
+        if (av_str_replace(buf_millis, buf_millis_size, s->text, "%N", millis_str) != -1)
+            break;
+        buf_millis_size *= 2;
+    }
 
     if (!buf)
         buf_size = 2 * strlen(s->text) + 1;
@@ -535,10 +552,12 @@ static int expand_strftime(DrawTextContext *s)
 
     while ((buf = av_realloc(buf, buf_size))) {
         *buf = 1;
-        if (strftime(buf, buf_size, s->text, &ltime) != 0 || *buf == 0)
+        if (strftime(buf, buf_size, buf_millis, &ltime) != 0 || *buf == 0)
             break;
         buf_size *= 2;
     }
+
+    av_free(buf_millis);
 
     if (!buf)
         return AVERROR(ENOMEM);

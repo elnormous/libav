@@ -29,6 +29,7 @@
 #include "libavutil/log.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
+#include "libavutil/time.h"
 #include "libavformat/avformat.h"
 #include "libavformat/internal.h"
 
@@ -149,6 +150,8 @@ typedef struct {
     PacketQueue     q;
     AVStream        *audio_st;
     AVStream        *video_st;
+    AVStream        *data_st;
+    int             wallclock;
 } BMDCaptureContext;
 
 static AVStream *add_audio_stream(AVFormatContext *oc, DecklinkConf *conf)
@@ -182,6 +185,32 @@ static AVStream *add_audio_stream(AVFormatContext *oc, DecklinkConf *conf)
                conf->audio_sample_depth);
         return NULL;
     }
+
+    c->flags |= CODEC_FLAG_GLOBAL_HEADER;
+
+    return st;
+}
+
+static AVStream *add_data_stream(AVFormatContext *oc, DecklinkConf *conf)
+{
+    AVCodecContext *c;
+    AVStream *st;
+
+    st = avformat_new_stream(oc, NULL);
+    if (!st) {
+        fprintf(stderr, "Could not alloc stream\n");
+        exit(1);
+    }
+
+    c = st->codec;
+    c->codec_id   = AV_CODEC_ID_TEXT;
+    c->codec_type = AVMEDIA_TYPE_DATA;
+
+    st->time_base.den = conf->tb_den;
+    st->time_base.num = conf->tb_num;
+
+    st->avg_frame_rate.num = conf->tb_den;
+    st->avg_frame_rate.den = conf->tb_num;
 
     c->flags |= CODEC_FLAG_GLOBAL_HEADER;
 
@@ -246,6 +275,24 @@ static int bmd_read_close(AVFormatContext *s)
     return 0;
 }
 
+static int put_wallclock_packet(BMDCaptureContext *ctx, AVPacket *p)
+{
+    AVPacket pkt;
+    char buf[21];
+
+    av_init_packet(&pkt);
+
+    pkt.pts          = pkt.dts = p->pts;
+    pkt.stream_index = ctx->data_st->index;
+
+    pkt.size = snprintf(buf, sizeof(buf), "%" PRId64, av_gettime());
+    pkt.data = buf;
+
+    packet_queue_put(&ctx->q, &pkt);
+
+    return 0;
+}
+
 static int video_callback(void *priv, uint8_t *frame,
                           int width, int height, int stride,
                           int64_t timestamp,
@@ -264,6 +311,9 @@ static int video_callback(void *priv, uint8_t *frame,
     pkt.stream_index  = ctx->video_st->index;
     pkt.data          = frame;
     pkt.size          = stride * height;
+
+    if (ctx->wallclock)
+        put_wallclock_packet(ctx, &pkt);
 
     return packet_queue_put(&ctx->q, &pkt);
 }
@@ -310,6 +360,7 @@ static int bmd_read_header(AVFormatContext *s)
 
     ctx->video_st = add_video_stream(s, &ctx->conf);
     ctx->audio_st = add_audio_stream(s, &ctx->conf);
+    ctx->data_st  = add_data_stream(s, &ctx->conf);
 
     if (!ctx->video_st || !ctx->audio_st) {
         ret = AVERROR(ENOMEM);
@@ -332,14 +383,16 @@ static int bmd_read_packet(AVFormatContext *s, AVPacket *pkt)
 }
 
 
-#define O(x) offsetof(BMDCaptureContext, conf) + offsetof(DecklinkConf, x)
+#define OD(x) offsetof(BMDCaptureContext, conf) + offsetof(DecklinkConf, x)
+#define OC(x) offsetof(BMDCaptureContext, x)
 #define D AV_OPT_FLAG_DECODING_PARAM
 static const AVOption options[] = {
-    { "instance",         "Device instance",    O(instance),         AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-    { "video_mode",       "Video mode",         O(video_mode),       AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-    { "video_connection", "Video connection",   O(video_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-    { "video_format",     "Video pixel format", O(pixel_format),     AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-    { "audio_connection", "Audio connection",   O(audio_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
+    { "instance",         "Device instance",    OD(instance),         AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
+    { "video_mode",       "Video mode",         OD(video_mode),       AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
+    { "video_connection", "Video connection",   OD(video_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
+    { "video_format",     "Video pixel format", OD(pixel_format),     AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
+    { "audio_connection", "Audio connection",   OD(audio_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
+    { "wallclock",        "Add the wallclock",  OC(wallclock),        AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { NULL },
 };
 
