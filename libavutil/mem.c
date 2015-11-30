@@ -403,3 +403,48 @@ void av_fast_malloc(void *ptr, unsigned int *size, size_t min_size)
         min_size = 0;
     *size = min_size;
 }
+
+int av_str_replace(char *buffer, int buffer_size, const char *haystack, const char *needle, const char *replacement)
+{
+    const char *ins;    // the next insert point
+    char *tmp;    // varies
+    int len_needle;  // length of the needle
+    int len_replacement; // length of replacement
+    int len_front; // distance between needle and end of last needle
+    int count;    // number of replacements
+    int result;
+    
+    if (!buffer)
+		return -1;
+    if (!haystack)
+        return -1;
+    if (!needle)
+        return -1;
+    len_needle = strlen(needle);
+    if (!replacement)
+        replacement = "";
+    len_replacement = strlen(replacement);
+
+    ins = haystack;
+    for (count = 0; (tmp = strstr(ins, needle)); ++count) {
+        ins = tmp + len_needle;
+    }
+    
+    result = count;
+    
+    if (buffer_size < strlen(haystack) + (len_replacement - len_needle) * count + 1)
+        return -1;
+        
+    tmp = buffer;
+    
+    while (count--) {
+        ins = strstr(haystack, needle);
+        len_front = ins - haystack;
+        tmp = strncpy(tmp, haystack, len_front) + len_front;
+        tmp = strcpy(tmp, replacement) + len_replacement;
+        haystack += len_front + len_needle; // move to next "end of needle"
+    }
+    strcpy(tmp, haystack);
+    
+    return result;
+}

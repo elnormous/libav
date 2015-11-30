@@ -581,6 +581,14 @@ static void show_packet(AVFormatContext *fmt_ctx, AVPacket *pkt)
     probe_int("pos", pkt->pos);
     probe_str("flags", pkt->flags & AV_PKT_FLAG_KEY ? "K" : "_");
     probe_object_footer("packet");
+    
+    if (st->codec->codec_type == AVMEDIA_TYPE_DATA && pkt->size > 0)
+    {
+        memcpy(val_str, pkt->data, pkt->size);
+        val_str[pkt->size] = '\0';
+        
+        probe_str("data", val_str);
+    }
 }
 
 static void show_packets(AVFormatContext *fmt_ctx)

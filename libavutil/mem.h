@@ -269,6 +269,18 @@ void *av_fast_realloc(void *ptr, unsigned int *size, size_t min_size);
 void av_fast_malloc(void *ptr, unsigned int *size, size_t min_size);
 
 /**
+ * Replace all occurrences of string in another string with a replacement.
+ *
+ * @param buffer buffer to output replaced string to
+ * @param buffer_size size of the output buffer
+ * @param haystack original string
+ * @param needle string that has to be replaced
+ * @param replacement replacement string
+ * @return number of replacements found or -1 on failure
+ */
+int av_str_replace(char *buffer, int buffer_size, const char *haystack, const char *needle, const char *replacement);
+
+/**
  * @}
  */
 
