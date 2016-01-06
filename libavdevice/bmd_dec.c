@@ -336,7 +336,7 @@ static int bmd_read_packet(AVFormatContext *s, AVPacket *pkt)
 #define D AV_OPT_FLAG_DECODING_PARAM
 static const AVOption options[] = {
     { "instance",         "Device instance",    O(instance),         AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-    { "video_mode",       "Video mode",         O(video_mode),       AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
+    { "video_mode",       "Video mode",         O(video_mode),       AV_OPT_TYPE_INT, {.i64 = 0}, -1, INT_MAX, D },
     { "video_connection", "Video connection",   O(video_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { "video_format",     "Video pixel format", O(pixel_format),     AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { "audio_connection", "Audio connection",   O(audio_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
