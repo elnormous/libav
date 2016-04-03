@@ -469,6 +469,7 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
 
     if (flv->delay == AV_NOPTS_VALUE)
     {
+        int64_t millis;
         struct timeval tv;
         gettimeofday(&tv, NULL);
         int64_t millis = 1000 * tv.tv_sec + tv.tv_usec / 1000;
