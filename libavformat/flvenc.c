@@ -29,6 +29,7 @@
 
 #undef NDEBUG
 #include <assert.h>
+#include <sys/time.h>
 
 static const AVCodecTag flv_video_codec_ids[] = {
     { AV_CODEC_ID_FLV1,     FLV_CODECID_H263 },
@@ -467,7 +468,13 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
         flags_size = 1;
 
     if (flv->delay == AV_NOPTS_VALUE)
-        flv->delay = -pkt->dts;
+    {
+        struct timeval tv;
+        gettimeofday(&tv,NULL);
+        int64_t millis = 1000 * tv_sec + tv_usec / 1000;
+
+        flv->delay = millis;//-pkt->dts;
+    }
 
     if (pkt->dts < -flv->delay) {
         av_log(s, AV_LOG_WARNING,
