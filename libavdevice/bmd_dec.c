@@ -238,6 +238,22 @@ static AVStream *add_video_stream(AVFormatContext *oc, DecklinkConf *conf)
     st->avg_frame_rate.num = conf->tb_den;
     st->avg_frame_rate.den = conf->tb_num;
 
+    switch (conf->field_mode) {
+    case 1:
+        c->field_order = AV_FIELD_TT;
+        break;
+    case 2:
+        c->field_order = AV_FIELD_BB;
+        break;
+    case 3:
+        c->field_order = AV_FIELD_PROGRESSIVE;
+        break;
+    default:
+    case 0:
+        c->field_order = AV_FIELD_UNKNOWN;
+        break;
+    }
+
     switch (conf->pixel_format) {
     // YUV first
     case 0:
