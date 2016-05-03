@@ -1457,6 +1457,7 @@ typedef struct AVCodecContext {
      * - decoding: unused
      */
     int gop_size;
+    int auto_gop;
 
     /**
      * Pixel format, see AV_PIX_FMT_xxx.
