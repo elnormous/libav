@@ -26,6 +26,7 @@
 #include "flv.h"
 #include "internal.h"
 #include "metadata.h"
+#include "libavutil/opt.h"
 
 #undef NDEBUG
 #include <assert.h>
@@ -66,6 +67,7 @@ typedef struct FLVContext {
     AVCodecContext *video_enc;
     double framerate;
     AVCodecContext *data_enc;
+    int pts_mod;
 } FLVContext;
 
 typedef struct FLVStreamContext {
@@ -469,12 +471,19 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
 
     if (flv->delay == AV_NOPTS_VALUE)
     {
-        int64_t millis;
-        struct timeval tv;
-        gettimeofday(&tv, NULL);
-        millis = 1000 * tv.tv_sec + tv.tv_usec / 1000;
+        if (flv->pts_mod)
+        {
+            int64_t millis;
+            struct timeval tv;
+            gettimeofday(&tv, NULL);
+            millis = 1000 * tv.tv_sec + tv.tv_usec / 1000;
 
-        flv->delay = millis;//-pkt->dts;
+            flv->delay = millis;
+        }
+        else
+        {
+            flv->delay = -pkt->dts;
+        }
     }
 
     if (pkt->dts < -flv->delay) {
@@ -580,6 +589,20 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
     return pb->error;
 }
 
+#define E AV_OPT_FLAG_ENCODING_PARAM
+#define OFFSET(x) offsetof(FLVContext, x)
+static const struct AVOption options[] = {
+    { "pts_mod", "Use non-zero start ts", OFFSET(pts_mod), AV_OPT_TYPE_INT,   { .i64 = 0 },   0, INT_MAX,   E },
+    { NULL },
+};
+
+static const AVClass flv_class = {
+    .class_name = "flv muxer",
+    .item_name  = av_default_item_name,
+    .option     = options,
+    .version    = LIBAVUTIL_VERSION_INT,
+};
+
 AVOutputFormat ff_flv_muxer = {
     .name           = "flv",
     .long_name      = NULL_IF_CONFIG_SMALL("FLV (Flash Video)"),
@@ -596,4 +619,5 @@ AVOutputFormat ff_flv_muxer = {
                       },
     .flags          = AVFMT_GLOBALHEADER | AVFMT_VARIABLE_FPS |
                       AVFMT_TS_NONSTRICT,
+    .priv_class     = &flv_class,
 };
