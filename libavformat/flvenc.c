@@ -450,6 +450,142 @@ static int flv_write_trailer(AVFormatContext *s)
     return 0;
 }
 
+static unsigned short days[4][12] =
+{
+    {   0,  31,  60,  91, 121, 152, 182, 213, 244, 274, 305, 335},
+    { 366, 397, 425, 456, 486, 517, 547, 578, 609, 639, 670, 700},
+    { 731, 762, 790, 821, 851, 882, 912, 943, 974,1004,1035,1065},
+    {1096,1127,1155,1186,1216,1247,1277,1308,1339,1369,1400,1430},
+};
+
+typedef struct
+{
+    uint32_t second; // 0-59
+    uint32_t minute; // 0-59
+    uint32_t hour;   // 0-59
+    uint32_t day;    // 1-31
+    uint32_t month;  // 1-12
+    uint32_t year;   // 0-99 (representing 2000-2099)
+
+    uint32_t absolute_day;
+    uint32_t day_of_week;
+}
+date_time_t;
+
+static uint32_t date_time_to_epoch(const date_time_t* date_time)
+{
+    uint32_t second = date_time->second;  // 0-59
+    uint32_t minute = date_time->minute;  // 0-59
+    uint32_t hour   = date_time->hour;    // 0-23
+    uint32_t day    = date_time->day - 1;   // 0-30
+    uint32_t month  = date_time->month - 1; // 0-11
+    uint32_t year   = date_time->year;    // 0-99
+    return (((year / 4 * (365 * 4 + 1) + days[year % 4][month] + day) * 24 + hour) * 60 + minute) * 60 + second;
+}
+
+static void epoch_to_date_time(date_time_t* date_time, uint32_t epoch)
+{
+    date_time->second = epoch % 60; epoch /= 60;
+    date_time->minute = epoch % 60; epoch /= 60;
+    date_time->hour   = epoch % 24; epoch /= 24;
+
+    date_time->absolute_day = epoch;
+    date_time->day_of_week = (date_time->absolute_day + 4) % 7;
+
+    printf("Current day: %d, day of week: %d\n", date_time->absolute_day, date_time->day_of_week);
+
+    unsigned int years = epoch / (365 * 4 + 1) * 4; epoch %= 365 * 4 + 1;
+
+    unsigned int year;
+    for (year = 3; year > 0; year--)
+    {
+        if (epoch >= days[year][0])
+            break;
+    }
+
+    unsigned int month;
+    for (month = 11; month > 0; month--)
+    {
+        if (epoch >= days[year][month])
+            break;
+    }
+
+    date_time->year  = years + year;
+    date_time->month = month + 1;
+    date_time->day   = epoch - days[year][month] + 1;
+}
+
+static const uint32_t FNV_OFFSET_32 = 2166136261U;
+static const uint32_t FNV_PRIME_32 = 16777619;
+static uint32_t hash(const char* str)
+{
+    uint32_t hash = FNV_OFFSET_32;
+    for (size_t i = 0; i < strlen(str); i++)
+    {
+        hash = hash ^ (uint32_t)str[i];
+        hash = hash * FNV_PRIME_32;
+    }
+
+    return hash;
+}
+
+static const char* RESERVED[] = { "hd", "hi", "hig", "med", "low", "slow", "mob", "hls" };
+
+static uint32_t get_stream_hash(const char* str)
+{
+    size_t length;
+    char* result_str;
+    size_t index = 0;
+    size_t result_index = 0;
+    uint32_t result;
+
+    length = strlen(str);
+    result_str = malloc(length);
+
+    for (size_t i = 0; i < length; ++i)
+    {
+        if (str[length - i - 1] == '\\' || str[length - i - 1] == '/')
+        {
+            index = length - i;
+            break;
+        }
+    }
+
+    for (size_t i = index; i < length; ++i)
+    {
+        if (i == length - 1 ||
+            str[i + 1] == '-' || str[i + 1] == '_')
+        {
+            int reserved = 0;
+
+            for (size_t c = 0; c < sizeof(RESERVED) / sizeof(char*); ++c)
+            {
+                if ((i - index + 1) == strlen(RESERVED[c]) && strncmp(RESERVED[c], str + index, i - index + 1) == 0)
+                {
+                    reserved = 1;
+                    break;
+                }
+            }
+
+            if (!reserved)
+            {
+                memcpy(result_str + result_index, str + index, i - index + 1);
+                result_index += i - index + 1;
+            }
+
+            index = i + 2;
+        }
+    }
+
+    result_str[result_index] = '\0';
+
+    result = hash(result_str);
+
+    free((void*)result_str);
+
+    return result;
+}
+
 static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
 {
     AVIOContext *pb      = s->pb;
@@ -473,12 +609,47 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
     {
         if (flv->pts_mod)
         {
-            int64_t millis;
             struct timeval tv;
+            struct tm* timeinfo;
+            time_t current_timestamp;
+            int64_t millis;
+            uint32_t next_wrap_after;
+            time_t next_wrap_timestamp;
+            date_time_t wrap_time;
+            uint32_t stream_hash;
+            date_time_t next_tuesday;
+            time_t next_tuesday_timestamp;
+
             gettimeofday(&tv, NULL);
             millis = 1000 * tv.tv_sec + tv.tv_usec / 1000;
 
-            flv->delay = millis;
+            time(&current_timestamp);
+
+            next_wrap_after = 0x7FFFFFFF - (millis % 0x7FFFFFFF);
+            next_wrap_timestamp = current_timestamp + next_wrap_after / 1000;
+
+            epoch_to_date_time(&wrap_time, (uint32_t)next_wrap_timestamp);
+
+            stream_hash = get_stream_hash(s->filename) % 18;
+
+            next_tuesday.year = wrap_time.year;
+            next_tuesday.month = wrap_time.month;
+            next_tuesday.day = wrap_time.day + 2 - wrap_time.day_of_week;
+            next_tuesday.hour = 7 + stream_hash / 6;
+            next_tuesday.minute = (stream_hash % 6) * 10;
+            next_tuesday.second = 0;
+
+            next_tuesday_timestamp = date_time_to_epoch(&next_tuesday);
+
+            if (next_tuesday_timestamp > next_wrap_timestamp)
+            {
+                next_tuesday_timestamp -= 7 * 24 * 60 * 60;
+            }
+
+            timeinfo = localtime(&next_tuesday_timestamp);
+            printf("Time wrap will happen on: %s", asctime(timeinfo));
+
+            flv->delay = (int64_t)(current_timestamp + next_tuesday_timestamp - next_wrap_timestamp) * 1000;
         }
         else
         {
@@ -490,6 +661,12 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
         av_log(s, AV_LOG_WARNING,
                "Packets are not in the proper order with respect to DTS\n");
         return AVERROR(EINVAL);
+    }
+
+    if (pkt->dts + flv->delay > 0x7FFFFFFF)
+    {
+        printf("Wrap reached!\n");
+        exit(1);
     }
 
     ts = pkt->dts + flv->delay; // add delay to force positive dts
