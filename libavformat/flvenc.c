@@ -496,8 +496,6 @@ static void epoch_to_date_time(date_time_t* date_time, uint32_t epoch)
     date_time->absolute_day = epoch;
     date_time->day_of_week = (date_time->absolute_day + 4) % 7;
 
-    printf("Current day: %d, day of week: %d\n", date_time->absolute_day, date_time->day_of_week);
-
     years = epoch / (365 * 4 + 1) * 4; epoch %= 365 * 4 + 1;
 
     for (year = 3; year > 0; year--)
@@ -651,7 +649,7 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
             timeinfo = localtime(&next_tuesday_timestamp);
             printf("Time wrap will happen on: %s", asctime(timeinfo));
 
-            flv->delay = (int64_t)(current_timestamp + next_tuesday_timestamp - next_wrap_timestamp) * 1000;
+            flv->delay = (current_timestamp + next_tuesday_timestamp - next_wrap_timestamp) * 1000 % 0x7FFFFFFF;
         }
         else
         {
