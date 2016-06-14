@@ -485,6 +485,10 @@ static uint32_t date_time_to_epoch(const date_time_t* date_time)
 
 static void epoch_to_date_time(date_time_t* date_time, uint32_t epoch)
 {
+    unsigned int years;
+    unsigned int year;
+    unsigned int month;
+
     date_time->second = epoch % 60; epoch /= 60;
     date_time->minute = epoch % 60; epoch /= 60;
     date_time->hour   = epoch % 24; epoch /= 24;
@@ -494,16 +498,14 @@ static void epoch_to_date_time(date_time_t* date_time, uint32_t epoch)
 
     printf("Current day: %d, day of week: %d\n", date_time->absolute_day, date_time->day_of_week);
 
-    unsigned int years = epoch / (365 * 4 + 1) * 4; epoch %= 365 * 4 + 1;
+    years = epoch / (365 * 4 + 1) * 4; epoch %= 365 * 4 + 1;
 
-    unsigned int year;
     for (year = 3; year > 0; year--)
     {
         if (epoch >= days[year][0])
             break;
     }
-
-    unsigned int month;
+    
     for (month = 11; month > 0; month--)
     {
         if (epoch >= days[year][month])
