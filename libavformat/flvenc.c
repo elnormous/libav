@@ -649,7 +649,7 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
             timeinfo = localtime(&next_tuesday_timestamp);
             printf("Time wrap will happen on: %s", asctime(timeinfo));
 
-            flv->delay = ((int64_t)next_tuesday_timestamp * 1000 - next_wrap_after) % 0x7FFFFFFF;
+            flv->delay = ((int64_t)next_tuesday_timestamp * 1000 - (int64_t)0x7FFFFFFF + (int64_t)current_timestamp * 1000) % 0x7FFFFFFF;
         }
         else
         {
