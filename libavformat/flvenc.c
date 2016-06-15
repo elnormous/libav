@@ -769,7 +769,7 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
 #define E AV_OPT_FLAG_ENCODING_PARAM
 #define OFFSET(x) offsetof(FLVContext, x)
 static const struct AVOption options[] = {
-    { "pts_mod", "Use non-zero start ts", OFFSET(pts_mod), AV_OPT_TYPE_INT,   { .i64 = 0 },   0, INT_MAX,   E },
+    { "pts_mod", "Use non-zero start ts", OFFSET(pts_mod), AV_OPT_TYPE_INT,   { .i64 = 1 },   0, 1,   E },
     { NULL },
 };
 
