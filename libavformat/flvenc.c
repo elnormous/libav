@@ -645,6 +645,10 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
             {
                 next_tuesday_timestamp -= 7 * 24 * 60 * 60;
             }
+            else if (next_tuesday_timestamp < current_timestamp)
+            {
+                next_tuesday_timestamp += 7 * 24 * 60 * 60;
+            }
 
             timeinfo = localtime(&next_tuesday_timestamp);
             printf("Time wrap will happen on: %s", asctime(timeinfo));
