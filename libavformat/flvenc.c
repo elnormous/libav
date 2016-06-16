@@ -613,10 +613,11 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
             struct tm* timeinfo;
             time_t current_timestamp;
             int64_t millis;
-            uint32_t next_wrap_after;
+            int64_t next_wrap_after;
+            int64_t next_wrap;
             time_t next_wrap_timestamp;
             date_time_t wrap_time;
-            uint32_t stream_hash;
+            int64_t stream_hash;
             date_time_t next_tuesday;
             time_t next_tuesday_timestamp;
 
@@ -626,29 +627,33 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
             time(&current_timestamp);
 
             next_wrap_after = 0x7FFFFFFF - (millis % 0x7FFFFFFF);
-            next_wrap_timestamp = current_timestamp + next_wrap_after / 1000;
+            next_wrap = current_timestamp * 1000 + next_wrap_after;
 
-            epoch_to_date_time(&wrap_time, (uint32_t)next_wrap_timestamp);
-
-            stream_hash = get_stream_hash(s->filename) % 18;
-
-            next_tuesday.year = wrap_time.year;
-            next_tuesday.month = wrap_time.month;
-            next_tuesday.day = wrap_time.day + 2 - wrap_time.day_of_week;
-            next_tuesday.hour = 7 + stream_hash / 6;
-            next_tuesday.minute = (stream_hash % 6) * 10;
-            next_tuesday.second = 0;
-
-            next_tuesday_timestamp = date_time_to_epoch(&next_tuesday);
-
-            if (next_tuesday_timestamp > next_wrap_timestamp)
+            do
             {
-                next_tuesday_timestamp -= 7 * 24 * 60 * 60;
-            }
-            else if (next_tuesday_timestamp < current_timestamp)
-            {
-                next_tuesday_timestamp += 7 * 24 * 60 * 60;
-            }
+                next_wrap_timestamp = next_wrap / 1000;
+
+                epoch_to_date_time(&wrap_time, (uint32_t)next_wrap_timestamp);
+
+                stream_hash = get_stream_hash(s->filename) % 18;
+
+                next_tuesday.year = wrap_time.year;
+                next_tuesday.month = wrap_time.month;
+                next_tuesday.day = wrap_time.day + 2 - wrap_time.day_of_week;
+                next_tuesday.hour = 7 + stream_hash / 6;
+                next_tuesday.minute = (stream_hash % 6) * 10;
+                next_tuesday.second = 0;
+
+                next_tuesday_timestamp = date_time_to_epoch(&next_tuesday);
+
+                if (next_tuesday_timestamp > next_wrap_timestamp)
+                {
+                    next_tuesday_timestamp -= 7 * 24 * 60 * 60;
+                }
+
+                next_wrap += 0x7FFFFFFF;
+
+            } while (next_tuesday_timestamp < current_timestamp)
 
             timeinfo = localtime(&next_tuesday_timestamp);
             printf("Time wrap will happen on: %s", asctime(timeinfo));
