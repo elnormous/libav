@@ -706,8 +706,8 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
         if (tv.tv_usec >= flv->stop_time)
         {
             printf("Stop reached! Timestamp: %u\n", (uint32_t)tv.tv_sec);
+            exit(1);
         }
-        exit(1);
     }
 
     ts = pkt->dts + flv->delay; // add delay to force positive dts
