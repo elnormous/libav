@@ -703,7 +703,7 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
         struct timeval tv;
         gettimeofday(&tv, NULL);
 
-        if (flv->stop_time > tv.tv_usec)
+        if (tv.tv_usec >= flv->stop_time)
         {
             printf("Stop reached! Timestamp: %u\n", (uint32_t)tv.tv_sec);
         }
