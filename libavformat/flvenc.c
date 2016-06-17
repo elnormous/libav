@@ -624,7 +624,7 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
             gettimeofday(&tv, NULL);
             millis = 1000 * tv.tv_sec + tv.tv_usec / 1000;
 
-            time(&current_timestamp);
+            current_timestamp = tv.tv_sec;
 
             next_wrap_after = 0x7FFFFFFF - (millis % 0x7FFFFFFF);
             next_wrap = current_timestamp * 1000 + next_wrap_after;
@@ -656,7 +656,7 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
             } while (next_tuesday_timestamp < current_timestamp);
 
             timeinfo = localtime(&next_tuesday_timestamp);
-            printf("Time wrap will happen on: %s", asctime(timeinfo));
+            printf("Time wrap will happen on: %u, %s", (uint32_t)next_tuesday_timestamp, asctime(timeinfo));
 
             flv->delay = ((int64_t)0x7FFFFFFF - ((int64_t)next_tuesday_timestamp * 1000 - (int64_t)current_timestamp * 1000)) % 0x7FFFFFFF;
         }
@@ -674,7 +674,9 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
 
     if (pkt->dts + flv->delay > 0x7FFFFFFF)
     {
-        printf("Wrap reached!\n");
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+        printf("Wrap reached! Timestamp: %u\n", (uint32_t)tv.tv_sec);
         exit(1);
     }
 
