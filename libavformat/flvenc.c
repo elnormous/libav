@@ -68,6 +68,7 @@ typedef struct FLVContext {
     double framerate;
     AVCodecContext *data_enc;
     int pts_mod;
+    int64_t stop_time;
 } FLVContext;
 
 typedef struct FLVStreamContext {
@@ -615,11 +616,16 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
             int64_t millis;
             int64_t next_wrap_after;
             int64_t next_wrap;
+            int64_t previous_wrap;
             time_t next_wrap_timestamp;
+            time_t previous_wrap_timestamp;
             date_time_t wrap_time;
             int64_t stream_hash;
-            date_time_t next_tuesday;
+            date_time_t tuesday;
             time_t next_tuesday_timestamp;
+            time_t previous_tuesday_timestamp;
+
+            stream_hash = get_stream_hash(s->filename) % 18;
 
             gettimeofday(&tv, NULL);
             millis = 1000 * tv.tv_sec + tv.tv_usec / 1000;
@@ -629,40 +635,60 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
             next_wrap_after = 0x7FFFFFFF - (millis % 0x7FFFFFFF);
             next_wrap = current_timestamp * 1000 + next_wrap_after;
 
-            do
+            while (1)
             {
                 next_wrap_timestamp = next_wrap / 1000;
 
                 epoch_to_date_time(&wrap_time, (uint32_t)next_wrap_timestamp);
 
-                stream_hash = get_stream_hash(s->filename) % 18;
+                tuesday.year = wrap_time.year;
+                tuesday.month = wrap_time.month;
+                tuesday.day = wrap_time.day + 2 - wrap_time.day_of_week;
+                tuesday.hour = 7 + stream_hash / 6;
+                tuesday.minute = (stream_hash % 6) * 10;
+                tuesday.second = 0;
 
-                next_tuesday.year = wrap_time.year;
-                next_tuesday.month = wrap_time.month;
-                next_tuesday.day = wrap_time.day + 2 - wrap_time.day_of_week;
-                next_tuesday.hour = 7 + stream_hash / 6;
-                next_tuesday.minute = (stream_hash % 6) * 10;
-                next_tuesday.second = 0;
+                next_tuesday_timestamp = date_time_to_epoch(&tuesday);
 
-                next_tuesday_timestamp = date_time_to_epoch(&next_tuesday);
-
-                if (next_tuesday_timestamp > next_wrap_timestamp)
+                while (next_tuesday_timestamp > next_wrap_timestamp)
                 {
                     next_tuesday_timestamp -= 7 * 24 * 60 * 60;
                 }
 
-                next_wrap += 0x7FFFFFFF;
+                if (next_tuesday_timestamp > current_timestamp)
+                {
+                    break;
+                }
 
-            } while (next_tuesday_timestamp < current_timestamp);
+                next_wrap += 0x7FFFFFFF;
+            }
+
+            previous_wrap = next_wrap - 0x7FFFFFFF;
+            previous_wrap_timestamp = previous_wrap / 1000;
+            epoch_to_date_time(&wrap_time, (uint32_t)previous_wrap_timestamp);
+            tuesday.year = wrap_time.year;
+            tuesday.month = wrap_time.month;
+            tuesday.day = wrap_time.day + 2 - wrap_time.day_of_week;
+            previous_tuesday_timestamp = date_time_to_epoch(&tuesday);
+
+            while (previous_tuesday_timestamp > previous_wrap_timestamp)
+            {
+                previous_tuesday_timestamp -= 7 * 24 * 60 * 60;
+            }
+
+            timeinfo = localtime(&previous_tuesday_timestamp);
+            printf("Previous stop on: %u, %s", (uint32_t)previous_tuesday_timestamp, asctime(timeinfo));
 
             timeinfo = localtime(&next_tuesday_timestamp);
-            printf("Time wrap will happen on: %u, %s", (uint32_t)next_tuesday_timestamp, asctime(timeinfo));
+            printf("Next stop on: %u, %s", (uint32_t)next_tuesday_timestamp, asctime(timeinfo));
 
-            flv->delay = ((int64_t)0x7FFFFFFF - ((int64_t)next_tuesday_timestamp * 1000 - (int64_t)current_timestamp * 1000)) % 0x7FFFFFFF;
+            flv->delay = (millis - (int64_t)previous_tuesday_timestamp * 1000) % 0x7FFFFFFF;
+            flv->stop_time = next_tuesday_timestamp;
         }
         else
         {
             flv->delay = -pkt->dts;
+            flv->stop_time = 0;
         }
     }
 
@@ -672,11 +698,15 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
         return AVERROR(EINVAL);
     }
 
-    if (pkt->dts + flv->delay > 0x7FFFFFFF)
+    if (flv->stop_time)
     {
         struct timeval tv;
         gettimeofday(&tv, NULL);
-        printf("Wrap reached! Timestamp: %u\n", (uint32_t)tv.tv_sec);
+
+        if (flv->stop_time > tv.tv_usec)
+        {
+            printf("Stop reached! Timestamp: %u\n", (uint32_t)tv.tv_sec);
+        }
         exit(1);
     }
 
