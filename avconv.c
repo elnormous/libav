@@ -1590,6 +1590,22 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
                     ost->file_index, ost->index);
             return ret;
         }
+
+        if (ost->enc_ctx->auto_gop != 0 && ost->enc_ctx->gop_size == 0)
+        {
+            if (ist->framerate.num && ist->framerate.den)
+            {
+                ost->enc_ctx->gop_size = ist->framerate.num / ist->framerate.den;
+
+                ost->enc_ctx->gop_size += 1;
+            }
+            else
+            {
+                av_log(NULL, AV_LOG_WARNING,
+                   "Failed to detect framerate, auto gop disabled.\n");
+            }
+        }
+
         assert_avoptions(ost->encoder_opts);
         if (ost->enc_ctx->bit_rate && ost->enc_ctx->bit_rate < 1000)
             av_log(NULL, AV_LOG_WARNING, "The bitrate parameter is set too low."
