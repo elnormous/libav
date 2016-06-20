@@ -203,6 +203,7 @@ static void write_metadata(AVFormatContext *s, unsigned int ts)
     int metadata_count = 0;
     int64_t metadata_size_pos, data_size, metadata_count_pos;
     AVDictionaryEntry *tag = NULL;
+    int i;
 
     /* write meta_tag */
     avio_w8(pb, 18);            // tag type META
@@ -273,6 +274,15 @@ static void write_metadata(AVFormatContext *s, unsigned int ts)
     if (flv->data_enc) {
         put_amf_string(pb, "datastream");
         put_amf_double(pb, 0.0);
+    }
+
+    for (i = 0; i < s->nb_streams; i++) {
+        AVCodecContext *enc = s->streams[i]->codec;
+        if (enc->codec_type == AVMEDIA_TYPE_VIDEO) {
+            put_amf_string(pb, "_METADATA_GOPSIZE");
+            put_amf_double(pb, enc->gop_size);
+            metadata_count++;
+        }
     }
 
     while ((tag = av_dict_get(s->metadata, "", tag, AV_DICT_IGNORE_SUFFIX))) {
