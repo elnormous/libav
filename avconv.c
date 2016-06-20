@@ -1597,7 +1597,10 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
             {
                 ost->enc_ctx->gop_size = ist->framerate.num / ist->framerate.den;
 
-                ost->enc_ctx->gop_size += 1;
+                if ((ist->framerate.num % ist->framerate.den) == 0)
+                {
+                    ost->enc_ctx->gop_size += 1;
+                }
             }
             else
             {
