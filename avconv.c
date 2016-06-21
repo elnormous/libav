@@ -1593,11 +1593,11 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
 
         if (ost->enc_ctx->auto_gop)
         {
-            if (ist->framerate.num && ist->framerate.den)
+            if (ist->st->avg_frame_rate.num && ist->st->avg_frame_rate.den)
             {
-                ost->enc_ctx->gop_size = ist->framerate.num / ist->framerate.den;
+                ost->enc_ctx->gop_size = ist->st->avg_frame_rate.num / ist->st->avg_frame_rate.den;
 
-                if ((ist->framerate.num % ist->framerate.den) == 0)
+                if ((ist->st->avg_frame_rate.num % ist->st->avg_frame_rate.den) == 0)
                 {
                     ost->enc_ctx->gop_size += 1;
                 }
