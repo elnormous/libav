@@ -1591,7 +1591,7 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
             return ret;
         }
 
-        if (ost->enc_ctx->auto_gop != 0 && ost->enc_ctx->gop_size == 0)
+        if (ost->enc_ctx->auto_gop)
         {
             if (ist->framerate.num && ist->framerate.den)
             {
