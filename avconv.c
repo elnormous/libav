@@ -1568,6 +1568,7 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
         AVCodec      *codec = ost->enc;
         AVCodecContext *dec = NULL;
         InputStream *ist;
+        AVDictionaryEntry *t = NULL;
 
         if ((ist = get_input_stream(ost)))
             dec = ist->dec_ctx;
@@ -1581,6 +1582,42 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
         if (!av_dict_get(ost->encoder_opts, "threads", NULL, 0))
             av_dict_set(&ost->encoder_opts, "threads", "auto", 0);
 
+        while ((t = av_dict_get(ost->encoder_opts, "", t, AV_DICT_IGNORE_SUFFIX))) {
+            if (strcmp(t->key, "auto_gop") == 0 && atoi(t->value)) {
+                int fps = 0;
+    
+                if (ist->st->avg_frame_rate.num && ist->st->avg_frame_rate.den) {
+                    fps = ist->st->avg_frame_rate.num / ist->st->avg_frame_rate.den;
+
+                    if ((ist->st->avg_frame_rate.num % ist->st->avg_frame_rate.den) == 0) {
+                        fps += 1;
+                    }
+                }
+                else {
+                    AVDictionaryEntry *tag = NULL;
+
+                    while ((tag = av_dict_get(input_files[ist->file_index]->ctx->metadata, "", tag, AV_DICT_IGNORE_SUFFIX))) {
+                        if (strcmp("fps", tag->key) == 0) {
+                            float fps_f = strtof(tag->value, NULL);
+                            fps = (int)fps_f;
+
+                            if (ceilf(fps_f) == fps_f) {
+                                fps += 1;
+                            }
+                        }
+                    }
+                }
+
+                if (fps) {
+                    ost->enc_ctx->gop_size = fps;
+                }
+                else {
+                    av_log(NULL, AV_LOG_WARNING,
+                       "Failed to detect framerate, auto gop disabled.\n");
+                }
+            }
+        }
+
         if ((ret = avcodec_open2(ost->enc_ctx, codec, &ost->encoder_opts)) < 0) {
             if (ret == AVERROR_EXPERIMENTAL)
                 abort_codec_experimental(codec, 1);
@@ -1589,41 +1626,6 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
                      "maybe incorrect parameters such as bit_rate, rate, width or height",
                     ost->file_index, ost->index);
             return ret;
-        }
-
-        if (ost->enc_ctx->auto_gop)
-        {
-            int fps = 0;
-        
-            if (ist->st->avg_frame_rate.num && ist->st->avg_frame_rate.den) {
-                fps = ist->st->avg_frame_rate.num / ist->st->avg_frame_rate.den;
-
-                if ((ist->st->avg_frame_rate.num % ist->st->avg_frame_rate.den) == 0) {
-                    fps += 1;
-                }
-            }
-            else {
-                AVDictionaryEntry *tag = NULL;
-
-                while ((tag = av_dict_get(input_files[ist->file_index]->ctx->metadata, "", tag, AV_DICT_IGNORE_SUFFIX))) {
-                    if (strcmp("fps", tag->key) == 0) {
-                        float fps_f = strtof(tag->value, NULL);
-                        fps = (int)fps_f;
-
-                        if (ceilf(fps_f) == fps_f) {
-                            fps += 1;
-                        }
-                    }
-                }
-            }
-
-            if (fps) {
-                ost->enc_ctx->gop_size = fps;
-            }
-            else {
-                av_log(NULL, AV_LOG_WARNING,
-                   "Failed to detect framerate, auto gop disabled.\n");
-            }
         }
 
         assert_avoptions(ost->encoder_opts);
