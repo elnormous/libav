@@ -677,10 +677,10 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
             }
 
             timeinfo = localtime(&previous_tuesday_timestamp);
-            av_log(s, AV_LOG_INFO, "Previous stop on: %u, %s\n", (uint32_t)previous_tuesday_timestamp, asctime(timeinfo));
+            av_log(s, AV_LOG_INFO, "Previous stop on: %u, %s", (uint32_t)previous_tuesday_timestamp, asctime(timeinfo));
 
             timeinfo = localtime(&next_tuesday_timestamp);
-            av_log(s, AV_LOG_INFO, "Next stop on: %u, %s\n", (uint32_t)next_tuesday_timestamp, asctime(timeinfo));
+            av_log(s, AV_LOG_INFO, "Next stop on: %u, %s", (uint32_t)next_tuesday_timestamp, asctime(timeinfo));
 
             flv->delay = (millis - (int64_t)previous_tuesday_timestamp * 1000) % 0x7FFFFFFF;
             flv->stop_time = next_tuesday_timestamp;
