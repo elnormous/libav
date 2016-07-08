@@ -1569,6 +1569,8 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
         AVCodecContext *dec = NULL;
         InputStream *ist;
         AVDictionaryEntry *t = NULL;
+        int auto_gop = 0;
+        int auto_fps = 0;
 
         if ((ist = get_input_stream(ost)))
             dec = ist->dec_ctx;
@@ -1584,38 +1586,42 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
 
         while ((t = av_dict_get(ost->encoder_opts, "", t, AV_DICT_IGNORE_SUFFIX))) {
             if (strcmp(t->key, "auto_gop") == 0 && atoi(t->value)) {
-                int fps = 0;
-    
-                if (ist->st->avg_frame_rate.num && ist->st->avg_frame_rate.den) {
-                    fps = ist->st->avg_frame_rate.num / ist->st->avg_frame_rate.den;
+                auto_gop = 1;
+            }
+            if (strcmp(t->key, "auto_fps") == 0 && atoi(t->value)) {
+                auto_fps = 1;
+            }
+        }
 
-                    if ((ist->st->avg_frame_rate.num % ist->st->avg_frame_rate.den) == 0) {
-                        fps += 1;
+        if (auto_gop || auto_fps)
+        {
+            double fps = 0.0;
+
+            if (ist->st->avg_frame_rate.num && ist->st->avg_frame_rate.den) {
+                fps = av_q2d(ist->st->avg_frame_rate);
+            }
+            else {
+                AVDictionaryEntry *tag = NULL;
+
+                while ((tag = av_dict_get(input_files[ist->file_index]->ctx->metadata, "", tag, AV_DICT_IGNORE_SUFFIX))) {
+                    if (strcmp("fps", tag->key) == 0 ||
+                        strcmp("framerate", tag->key) == 0) {
+                        fps = strtod(tag->value, NULL);
                     }
                 }
-                else {
-                    AVDictionaryEntry *tag = NULL;
+            }
 
-                    while ((tag = av_dict_get(input_files[ist->file_index]->ctx->metadata, "", tag, AV_DICT_IGNORE_SUFFIX))) {
-                        if (strcmp("fps", tag->key) == 0 ||
-                            strcmp("framerate", tag->key) == 0) {
-                            float fps_f = strtof(tag->value, NULL);
-                            fps = (int)fps_f;
+            if (fps) {
+                if (auto_gop) {
+                    int gop = (int)fps;
+                    gop += 1;
 
-                            if (ceilf(fps_f) == fps_f) {
-                                fps += 1;
-                            }
-                        }
-                    }
+                    ost->enc_ctx->gop_size = gop;
                 }
-
-                if (fps) {
-                    ost->enc_ctx->gop_size = fps;
-                }
-                else {
-                    av_log(NULL, AV_LOG_WARNING,
-                       "Failed to detect framerate, auto gop disabled.\n");
-                }
+            }
+            else {
+                av_log(NULL, AV_LOG_WARNING,
+                   "Failed to detect framerate, auto gop disabled.\n");
             }
         }
 
