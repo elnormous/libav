@@ -1613,7 +1613,7 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
                 }
 
                 if (auto_fps) {
-                    ost->enc_ctx->framerate = av_d2q(fps, INT_MAX);
+                    ost->enc_ctx->framerate = ost->st->avg_frame_rate = av_d2q(fps, INT_MAX);
                 }
             }
             else {
