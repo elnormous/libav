@@ -1595,7 +1595,7 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
 
         if (auto_gop || auto_fps)
         {
-            double fps = 0.0;
+            double fps = 0;
 
             if (ist->st->avg_frame_rate.num && ist->st->avg_frame_rate.den) {
                 fps = av_q2d(ist->st->avg_frame_rate);
@@ -1617,6 +1617,10 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
                     gop += 1;
 
                     ost->enc_ctx->gop_size = gop;
+                }
+
+                if (auto_fps) {
+                    ost->enc_ctx->framerate = av_d2q(fps, INT_MAX);
                 }
             }
             else {
