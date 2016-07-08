@@ -1597,7 +1597,8 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
                     AVDictionaryEntry *tag = NULL;
 
                     while ((tag = av_dict_get(input_files[ist->file_index]->ctx->metadata, "", tag, AV_DICT_IGNORE_SUFFIX))) {
-                        if (strcmp("fps", tag->key) == 0) {
+                        if (strcmp("fps", tag->key) == 0 ||
+                            strcmp("framerate", tag->key) == 0) {
                             float fps_f = strtof(tag->value, NULL);
                             fps = (int)fps_f;
 
