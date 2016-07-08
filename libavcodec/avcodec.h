@@ -2920,6 +2920,8 @@ typedef struct AVCodecContext {
      */
     AVRational framerate;
 
+    double metadata_framerate;
+
     /**
      * Nominal unaccelerated pixel format, see AV_PIX_FMT_xxx.
      * - encoding: unused.

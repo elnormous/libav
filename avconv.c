@@ -1597,18 +1597,11 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
         {
             double fps = 0;
 
-            if (ist->st->avg_frame_rate.num && ist->st->avg_frame_rate.den) {
-                fps = av_q2d(ist->st->avg_frame_rate);
+            if (dec->metadata_framerate) {
+                fps = dec->metadata_framerate;
             }
-            else {
-                AVDictionaryEntry *tag = NULL;
-
-                while ((tag = av_dict_get(input_files[ist->file_index]->ctx->metadata, "", tag, AV_DICT_IGNORE_SUFFIX))) {
-                    if (strcmp("fps", tag->key) == 0 ||
-                        strcmp("framerate", tag->key) == 0) {
-                        fps = strtod(tag->value, NULL);
-                    }
-                }
+            else if (ist->st->avg_frame_rate.num && ist->st->avg_frame_rate.den) {
+                fps = av_q2d(ist->st->avg_frame_rate);
             }
 
             if (fps) {
