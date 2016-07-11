@@ -243,6 +243,10 @@ static void write_metadata(AVFormatContext *s, unsigned int ts)
             put_amf_string(pb, "framerate");
             put_amf_double(pb, flv->framerate);
             metadata_count++;
+
+            put_amf_string(pb, "fps");
+            put_amf_double(pb, flv->framerate);
+            metadata_count++;
         }
 
         put_amf_string(pb, "videocodecid");

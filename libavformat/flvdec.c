@@ -497,7 +497,9 @@ static int amf_parse_object(AVFormatContext *s, AVStream *astream,
             !strcmp(key, "audiosamplesize") ||
             !strcmp(key, "stereo")          ||
             !strcmp(key, "audiocodecid")    ||
-            !strcmp(key, "datastream"))
+            !strcmp(key, "datastream")      ||
+            !strcmp(key, "gopsize")         ||
+            !strcmp(key, "fps"))
             return 0;
 
         s->event_flags |= AVFMT_EVENT_FLAG_METADATA_UPDATED;
