@@ -480,8 +480,6 @@ static int amf_parse_object(AVFormatContext *s, AVStream *astream,
                         vcodec->height = num_val;
                     } else if (!strcmp(key, "framerate") && vcodec) {
                         vcodec->metadata_framerate = num_val;
-                    } else if (!strcmp(key, "gopsize") && vcodec) {
-                        vcodec->gop_size = (int)num_val;
                     }
                 }
             }
