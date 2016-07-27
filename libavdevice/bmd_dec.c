@@ -346,14 +346,20 @@ out:
 static int bmd_read_packet(AVFormatContext *s, AVPacket *pkt)
 {
     BMDCaptureContext *ctx = s->priv_data;
+    int ret;
 
     if (av_gettime() - ctx->last_time > ctx->timeout * 1000000) {
-        return AVERROR_EOF;
+        ret = AVERROR_EOF;
     }
     else {
-        ctx->last_time = av_gettime();
-        return packet_queue_get(&ctx->q, pkt, 0);
+        ret = packet_queue_get(&ctx->q, pkt, 0);
+
+        if (ret != AVERROR(EAGAIN)) {
+            ctx->last_time = av_gettime();
+        }
     }
+
+    return ret;
 }
 
 #define OC(x) offsetof(BMDCaptureContext, x)
