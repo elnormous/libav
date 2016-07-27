@@ -29,6 +29,7 @@
 #include "libavutil/log.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
+#include "libavutil/time.h"
 #include "libavformat/avformat.h"
 #include "libavformat/internal.h"
 
@@ -140,8 +141,6 @@ static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block)
     return ret;
 }
 
-
-
 typedef struct {
     const AVClass   *class;    /**< Class for private options. */
     DecklinkCapture *capture;
@@ -149,6 +148,8 @@ typedef struct {
     PacketQueue     q;
     AVStream        *audio_st;
     AVStream        *video_st;
+    int64_t         timeout;
+    int64_t         last_time;
 } BMDCaptureContext;
 
 static AVStream *add_audio_stream(AVFormatContext *oc, DecklinkConf *conf)
@@ -332,6 +333,8 @@ static int bmd_read_header(AVFormatContext *s)
         goto out;
     }
 
+    ctx->last_time = av_gettime();
+
     decklink_capture_start(ctx->capture);
 
     return 0;
@@ -344,10 +347,16 @@ static int bmd_read_packet(AVFormatContext *s, AVPacket *pkt)
 {
     BMDCaptureContext *ctx = s->priv_data;
 
-    return packet_queue_get(&ctx->q, pkt, 0);
+    if (av_gettime() - ctx->last_time > ctx->timeout * 1000000) {
+        return AVERROR_EOF;
+    }
+    else {
+        ctx->last_time = av_gettime();
+        return packet_queue_get(&ctx->q, pkt, 0);
+    }
 }
 
-
+#define OC(x) offsetof(BMDCaptureContext, x)
 #define O(x) offsetof(BMDCaptureContext, conf) + offsetof(DecklinkConf, x)
 #define D AV_OPT_FLAG_DECODING_PARAM
 static const AVOption options[] = {
@@ -356,6 +365,7 @@ static const AVOption options[] = {
     { "video_connection", "Video connection",   O(video_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { "video_format",     "Video pixel format", O(pixel_format),     AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { "audio_connection", "Audio connection",   O(audio_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
+    { "video_timeout",    "Video timeout",      OC(timeout),         AV_OPT_TYPE_INT, {.i64 = 3}, 0, INT_MAX, D },
     { NULL },
 };
 
