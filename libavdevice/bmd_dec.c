@@ -304,9 +304,7 @@ static int put_wallclock_packet(BMDCaptureContext *ctx, AVPacket *p)
     pkt.size = snprintf(buf, sizeof(buf), "%" PRId64, av_gettime());
     pkt.data = buf;
 
-    packet_queue_put(&ctx->q, &pkt);
-
-    return 0;
+    return packet_queue_put(&ctx->q, &pkt);
 }
 
 static int video_callback(void *priv, uint8_t *frame,
