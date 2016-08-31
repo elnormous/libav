@@ -32,6 +32,9 @@
 #include "libavformat/avformat.h"
 #include "libavformat/internal.h"
 
+#include <unistd.h>
+#include <sys/fcntl.h>
+#include <sys/types.h>
 #include <sys/mman.h>
 #include <semaphore.h>
 #include <pthread.h>
@@ -297,8 +300,8 @@ static int bmd_read_close(AVFormatContext *s)
         ctx->shared_memory = (Memory*)MAP_FAILED;
     }
 
-    if (shared_memory_fd != -1) {
-        if (close(shared_memory_fd) == -1) {
+    if (ctx->shared_memory_fd != -1) {
+        if (close(ctx->shared_memory_fd) == -1) {
             av_log(s, AV_LOG_ERROR, "Failed to close memory\n");
         }
     }
@@ -351,8 +354,9 @@ static int audio_callback(BMDMemoryContext *ctx,
     return packet_queue_put(&ctx->q, &pkt);
 }
 
-static int thread_proc(BMDMemoryContext *ctx)
+static void thread_proc(AVFormatContext *s)
 {
+    BMDMemoryContext *ctx = s->priv_data;
     uint64_t video_pts;
     uint64_t audio_pts;
 
@@ -360,7 +364,7 @@ static int thread_proc(BMDMemoryContext *ctx)
         sem_wait(ctx->sem);
         memcpy(&video_pts, ctx->shared_memory, sizeof(video_pts));
         memcpy(&audio_pts, ctx->shared_memory, sizeof(video_pts));
-        sem_post(sem);
+        sem_post(ctx->sem);
 
         if (video_pts > ctx->video_pts) {
             int64_t     duration;
@@ -393,10 +397,12 @@ static int thread_proc(BMDMemoryContext *ctx)
 
             buf = av_buffer_create(ctx->shared_memory->video_data + offset, data_size, av_buffer_default_free, NULL, 0);
             if (!buf) {
-                return AVERROR(ENOMEM);
+                av_log(s, AV_LOG_ERROR, "Failed to create buffer\n");
+                //return AVERROR(ENOMEM);
+                return;
             }
 
-            sem_post(sem);
+            sem_post(ctx->sem);
 
             video_callback(ctx,
                            buf,
@@ -426,10 +432,12 @@ static int thread_proc(BMDMemoryContext *ctx)
 
             buf = av_buffer_create(ctx->shared_memory->video_data + offset, data_size, av_buffer_default_free, NULL, 0);
             if (!buf) {
-                return AVERROR(ENOMEM);
+                av_log(s, AV_LOG_ERROR, "Failed to create buffer\n");
+                //return AVERROR(ENOMEM);
+                return;
             }
 
-            sem_post(sem);
+            sem_post(ctx->sem);
 
             audio_callback(ctx,
                            buf,
@@ -437,8 +445,6 @@ static int thread_proc(BMDMemoryContext *ctx)
                            audio_pts);
         }
     }
-    
-    return 0;
 }
 
 static int bmd_read_header(AVFormatContext *s)
@@ -457,7 +463,7 @@ static int bmd_read_header(AVFormatContext *s)
         goto out;
     }
 
-    ctx->shared_memory = (Memory*)mmap(nullptr, sizeof(Memory), PROT_READ, MAP_SHARED, ctx->shared_memory_fd, 0);
+    ctx->shared_memory = (Memory*)mmap(NULL, sizeof(Memory), PROT_READ, MAP_SHARED, ctx->shared_memory_fd, 0);
 
     if (ctx->shared_memory == MAP_FAILED) {
         av_log(s, AV_LOG_ERROR, "Failed to open shared memory\n");
@@ -465,9 +471,9 @@ static int bmd_read_header(AVFormatContext *s)
         goto out;
     }
 
-    sprintf(sem_name, sizeof(sem_name), "%s_sem", ctx->memory_name);
+    snprintf(sem_name, sizeof(sem_name), "%s_sem", ctx->memory_name);
 
-    if ((sem = sem_open(sem_name, 0)) == SEM_FAILED) {
+    if ((ctx->sem = sem_open(sem_name, 0)) == SEM_FAILED) {
         av_log(s, AV_LOG_ERROR, "Failed to open semaphore\n");
         ret = AVERROR(EIO);
         goto out;
@@ -478,32 +484,32 @@ static int bmd_read_header(AVFormatContext *s)
 
     sem_wait(ctx->sem);
 
-    memcpy(sharedMemory->metaData + offset, &ctx->pixel_format, sizeof(ctx->pixel_format));
-    offset += sizeof(pixelFormat);
+    memcpy(&ctx->pixel_format, ctx->shared_memory->meta_data + offset, sizeof(ctx->pixel_format));
+    offset += sizeof(ctx->pixel_format);
 
-    memcpy(sharedMemory->metaData + offset, &ctx->width, sizeof(ctx->width));
-    offset += sizeof(width);
+    memcpy(&ctx->width, ctx->shared_memory->meta_data + offset, sizeof(ctx->width));
+    offset += sizeof(ctx->width);
 
-    memcpy(sharedMemory->metaData + offset, &ctx->height, sizeof(ctx->height));
-    offset += sizeof(height);
+    memcpy(&ctx->height, ctx->shared_memory->meta_data + offset, sizeof(ctx->height));
+    offset += sizeof(ctx->height);
 
-    memcpy(sharedMemory->metaData + offset, &ctx->frame_duration, sizeof(ctx->frame_duration)); // numerator
-    offset += sizeof(frameDuration);
+    memcpy(&ctx->frame_duration, ctx->shared_memory->meta_data + offset, sizeof(ctx->frame_duration)); // numerator
+    offset += sizeof(ctx->frame_duration);
 
-    memcpy(sharedMemory->metaData + offset, &ctx->time_scale, sizeof(ctx->time_scale)); // denumerator
-    offset += sizeof(timeScale);
+    memcpy(&ctx->time_scale, ctx->shared_memory->meta_data + offset, sizeof(ctx->time_scale)); // denumerator
+    offset += sizeof(ctx->time_scale);
 
-    memcpy(sharedMemory->metaData + offset, &ctx->field_dominance, sizeof(ctx->field_dominance));
-    offset += sizeof(fieldDominance);
+    memcpy(&ctx->field_dominance, ctx->shared_memory->meta_data + offset, sizeof(ctx->field_dominance));
+    offset += sizeof(ctx->field_dominance);
 
-    memcpy(sharedMemory->metaData + offset, &ctx->audio_sample_rate, sizeof(ctx->audio_sample_rate));
-    offset += sizeof(audioSampleRate);
+    memcpy(&ctx->audio_sample_rate, ctx->shared_memory->meta_data + offset, sizeof(ctx->audio_sample_rate));
+    offset += sizeof(ctx->audio_sample_rate);
 
-    memcpy(sharedMemory->metaData + offset, &ctx->audio_sample_depth, sizeof(ctx->audio_sample_depth));
-    offset += sizeof(audioSampleDepth);
+    memcpy(&ctx->audio_sample_depth, ctx->shared_memory->meta_data + offset, sizeof(ctx->audio_sample_depth));
+    offset += sizeof(ctx->audio_sample_depth);
 
-    memcpy(sharedMemory->metaData + offset, &ctx->audio_channels, sizeof(ctx->audio_channels));
-    offset += sizeof(audioChannels);
+    memcpy(&ctx->audio_channels, ctx->shared_memory->meta_data + offset, sizeof(ctx->audio_channels));
+    offset += sizeof(ctx->audio_channels);
 
     sem_post(ctx->sem);
 
@@ -515,7 +521,7 @@ static int bmd_read_header(AVFormatContext *s)
         goto out;
     }
 
-    if (pthread_create(&ctx->thread, NULL, thread_proc, ctx) != 0) {
+    if (pthread_create(&ctx->thread, NULL, thread_proc, s) != 0) {
         av_log(s, AV_LOG_ERROR, "Failed to create thread\n");
         ret = AVERROR(ENOMEM);
         goto out;
@@ -557,5 +563,5 @@ AVInputFormat ff_evf_demuxer = {
     .read_packet    = bmd_read_packet,
     .read_close     = bmd_read_close,
     .flags          = AVFMT_NOFILE,
-    .priv_class     = &bmd_class,
+    .priv_class     = &bmdmemory_class,
 };
