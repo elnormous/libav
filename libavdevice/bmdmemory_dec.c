@@ -354,7 +354,7 @@ static int audio_callback(BMDMemoryContext *ctx,
     return packet_queue_put(&ctx->q, &pkt);
 }
 
-static void thread_proc(void *arg)
+static void* thread_proc(void *arg)
 {
     AVFormatContext *s = arg;
     BMDMemoryContext *ctx = s->priv_data;
@@ -452,6 +452,8 @@ static void thread_proc(void *arg)
                            audio_pts);
         }
     }
+
+    return 0;
 }
 
 static int bmd_read_header(AVFormatContext *s)
