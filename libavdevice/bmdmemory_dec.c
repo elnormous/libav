@@ -364,7 +364,7 @@ static void thread_proc(void *arg)
     while (!ctx->done) {
         sem_wait(ctx->sem);
         memcpy(&video_pts, ctx->shared_memory->video_data, sizeof(video_pts));
-        memcpy(&audio_pts, ctx->shared_memory->audio_data, sizeof(video_pts));
+        memcpy(&audio_pts, ctx->shared_memory->audio_data, sizeof(audio_pts));
         sem_post(ctx->sem);
 
         if (video_pts > ctx->video_pts) {
