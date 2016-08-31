@@ -354,8 +354,9 @@ static int audio_callback(BMDMemoryContext *ctx,
     return packet_queue_put(&ctx->q, &pkt);
 }
 
-static void thread_proc(AVFormatContext *s)
+static void thread_proc(void *arg)
 {
+    AVFormatContext *s = arg;
     BMDMemoryContext *ctx = s->priv_data;
     uint64_t video_pts;
     uint64_t audio_pts;
@@ -555,7 +556,7 @@ static const AVClass bmdmemory_class = {
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
-AVInputFormat ff_evf_demuxer = {
+AVInputFormat ff_bmdmemory_demuxer = {
     .name           = "bmdmemory",
     .long_name      = NULL_IF_CONFIG_SMALL("BMD memory decoder"),
     .priv_data_size = sizeof(BMDMemoryContext),
