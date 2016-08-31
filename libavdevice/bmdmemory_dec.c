@@ -358,8 +358,10 @@ static void thread_proc(void *arg)
 {
     AVFormatContext *s = arg;
     BMDMemoryContext *ctx = s->priv_data;
-    uint64_t video_pts;
-    uint64_t audio_pts;
+    uint64_t video_pts = 0;
+    uint64_t prev_video_pts = 0;
+    uint64_t audio_pts = 0;
+    uint64_t prev_audio_pts = 0;
 
     while (!ctx->done) {
         sem_wait(ctx->sem);
@@ -367,7 +369,7 @@ static void thread_proc(void *arg)
         memcpy(&audio_pts, ctx->shared_memory->audio_data, sizeof(audio_pts));
         sem_post(ctx->sem);
 
-        if (video_pts > ctx->video_pts) {
+        if (video_pts > prev_video_pts) {
             int64_t     duration;
             long        frame_width;
             long        frame_height;
@@ -403,6 +405,8 @@ static void thread_proc(void *arg)
                 return;
             }
 
+            prev_video_pts = video_pts;
+
             sem_post(ctx->sem);
 
             video_callback(ctx,
@@ -414,7 +418,7 @@ static void thread_proc(void *arg)
                            duration);
         }
 
-        if (audio_pts > ctx->audio_pts) {
+        if (audio_pts > prev_audio_pts) {
             long sample_frame_count;
             uint32_t    data_size;
             AVBufferRef *buf;
@@ -437,6 +441,8 @@ static void thread_proc(void *arg)
                 //return AVERROR(ENOMEM);
                 return;
             }
+            
+            prev_audio_pts = audio_pts;
 
             sem_post(ctx->sem);
 
