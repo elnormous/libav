@@ -402,7 +402,7 @@ static void* thread_proc(void *arg)
             if (!buf) {
                 av_log(s, AV_LOG_ERROR, "Failed to create buffer\n");
                 //return AVERROR(ENOMEM);
-                return;
+                return NULL;
             }
 
             prev_video_pts = video_pts;
@@ -439,7 +439,7 @@ static void* thread_proc(void *arg)
             if (!buf) {
                 av_log(s, AV_LOG_ERROR, "Failed to create buffer\n");
                 //return AVERROR(ENOMEM);
-                return;
+                return NULL;
             }
 
             prev_audio_pts = audio_pts;
