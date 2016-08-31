@@ -453,7 +453,7 @@ static void* thread_proc(void *arg)
         }
     }
 
-    return 0;
+    return NULL;
 }
 
 static int bmd_read_header(AVFormatContext *s)
