@@ -441,7 +441,7 @@ static void thread_proc(void *arg)
                 //return AVERROR(ENOMEM);
                 return;
             }
-            
+
             prev_audio_pts = audio_pts;
 
             sem_post(ctx->sem);
@@ -528,7 +528,7 @@ static int bmd_read_header(AVFormatContext *s)
         goto out;
     }
 
-    if (pthread_create(&ctx->thread, NULL, thread_proc, s) != 0) {
+    if (pthread_create(&ctx->thread, NULL, &thread_proc, s) != 0) {
         av_log(s, AV_LOG_ERROR, "Failed to create thread\n");
         ret = AVERROR(ENOMEM);
         goto out;
