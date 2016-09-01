@@ -46,11 +46,40 @@ typedef struct PacketQueue {
     pthread_cond_t cond;
 } PacketQueue;
 
+static const uint32_t MEMORY_SIZE = 64 * 1024 * 1024; // 64 MiB
+static const uint32_t VIDEO_OFFSET = 128;
+static const uint32_t AUDIO_OFFSET = 40 * 1024 * 1024; // 40 MiB
+
 typedef struct {
-    uint8_t meta_data[128];
-    uint8_t video_data[1024 * 1024 * 40]; // 40MiB
-    uint8_t audio_data[1024 * 1024 * 40]; // 40MiB
-} Memory;
+    const AVClass   *class;    /**< Class for private options. */
+    char            *memory_name;
+    int             shared_memory_fd;
+    void            *shared_memory;
+    uint8_t         *meta_data;
+    uint8_t         *video_data;
+    uint8_t         *audio_data;
+    sem_t           *sem;
+    PacketQueue     q;
+    AVStream        *audio_st;
+    AVStream        *video_st;
+    uint64_t        video_pts;
+    uint64_t        audio_pts;
+
+    pthread_t       thread;
+    int             done;
+    // config
+
+    uint32_t pixel_format;
+    long width;
+    long height;
+    int64_t frame_duration;
+    int64_t time_scale;
+    uint32_t field_dominance;
+
+    uint32_t audio_sample_rate;
+    uint32_t audio_sample_depth;
+    uint32_t audio_channels;
+} BMDMemoryContext;
 
 static int packet_queue_init(PacketQueue *q)
 {
@@ -149,34 +178,6 @@ static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block)
     pthread_mutex_unlock(&q->mutex);
     return ret;
 }
-
-typedef struct {
-    const AVClass   *class;    /**< Class for private options. */
-    char            *memory_name;
-    int             shared_memory_fd;
-    Memory          *shared_memory;
-    sem_t           *sem;
-    PacketQueue     q;
-    AVStream        *audio_st;
-    AVStream        *video_st;
-    uint64_t        video_pts;
-    uint64_t        audio_pts;
-
-    pthread_t       thread;
-    int             done;
-    // config
-
-    uint32_t pixel_format;
-    long width;
-    long height;
-    int64_t frame_duration;
-    int64_t time_scale;
-    uint32_t field_dominance;
-
-    uint32_t audio_sample_rate;
-    uint32_t audio_sample_depth;
-    uint32_t audio_channels;
-} BMDMemoryContext;
 
 static AVStream *add_audio_stream(AVFormatContext *oc)
 {
@@ -296,7 +297,10 @@ static int bmd_read_close(AVFormatContext *s)
         if (munmap(ctx->shared_memory, sizeof(Memory)) == -1) {
             av_log(s, AV_LOG_ERROR, "Failed to unmap shared memory\n");
         }
-        ctx->shared_memory = (Memory*)MAP_FAILED;
+        ctx->shared_memory = MAP_FAILED;
+        ctx->meta_data = NULL;
+        ctx->video_data = NULL;
+        ctx->audio_data = NULL;
     }
 
     if (ctx->shared_memory_fd != -1) {
@@ -364,8 +368,8 @@ static void* thread_proc(void *arg)
 
     while (!ctx->done) {
         sem_wait(ctx->sem);
-        memcpy(&video_pts, ctx->shared_memory->video_data, sizeof(video_pts));
-        memcpy(&audio_pts, ctx->shared_memory->audio_data, sizeof(audio_pts));
+        memcpy(&video_pts, ctx->video_data, sizeof(video_pts));
+        memcpy(&audio_pts, ctx->audio_data, sizeof(audio_pts));
         sem_post(ctx->sem);
 
         if (video_pts > prev_video_pts) {
@@ -379,25 +383,25 @@ static void* thread_proc(void *arg)
 
             sem_wait(ctx->sem);
 
-            memcpy(&video_pts, ctx->shared_memory->video_data + offset, sizeof(video_pts));
+            memcpy(&video_pts, ctx->video_data + offset, sizeof(video_pts));
             offset += sizeof(video_pts);
 
-            memcpy(&duration, ctx->shared_memory->video_data + offset, sizeof(duration));
+            memcpy(&duration, ctx->video_data + offset, sizeof(duration));
             offset += sizeof(duration);
 
-            memcpy(&frame_width, ctx->shared_memory->video_data + offset, sizeof(frame_width));
+            memcpy(&frame_width, ctx->video_data + offset, sizeof(frame_width));
             offset += sizeof(frame_width);
 
-            memcpy(&frame_height, ctx->shared_memory->video_data + offset, sizeof(frame_height));
+            memcpy(&frame_height, ctx->video_data + offset, sizeof(frame_height));
             offset += sizeof(frame_height);
 
-            memcpy(&stride, ctx->shared_memory->video_data + offset, sizeof(stride));
+            memcpy(&stride, ctx->video_data + offset, sizeof(stride));
             offset += sizeof(stride);
 
-            memcpy(&data_size, ctx->shared_memory->video_data + offset, sizeof(data_size));
+            memcpy(&data_size, ctx->video_data + offset, sizeof(data_size));
             offset += sizeof(data_size);
 
-            buf = av_buffer_create(ctx->shared_memory->video_data + offset, data_size, av_buffer_default_free, NULL, 0);
+            buf = av_buffer_create(ctx->video_data + offset, data_size, av_buffer_default_free, NULL, 0);
             if (!buf) {
                 av_log(s, AV_LOG_ERROR, "Failed to create buffer\n");
                 //return AVERROR(ENOMEM);
@@ -425,16 +429,16 @@ static void* thread_proc(void *arg)
 
             sem_wait(ctx->sem);
 
-            memcpy(&audio_pts, ctx->shared_memory->audio_data + offset, sizeof(audio_pts));
+            memcpy(&audio_pts, ctx->audio_data + offset, sizeof(audio_pts));
             offset += sizeof(audio_pts);
 
-            memcpy(&sample_frame_count, ctx->shared_memory->audio_data + offset, sizeof(sample_frame_count));
+            memcpy(&sample_frame_count, ctx->audio_data + offset, sizeof(sample_frame_count));
             offset += sizeof(sample_frame_count);
 
-            memcpy(&data_size, ctx->shared_memory->audio_data + offset, sizeof(data_size));
+            memcpy(&data_size, ctx->audio_data + offset, sizeof(data_size));
             offset += sizeof(data_size);
 
-            buf = av_buffer_create(ctx->shared_memory->video_data + offset, data_size, av_buffer_default_free, NULL, 0);
+            buf = av_buffer_create(ctx->video_data + offset, data_size, av_buffer_default_free, NULL, 0);
             if (!buf) {
                 av_log(s, AV_LOG_ERROR, "Failed to create buffer\n");
                 //return AVERROR(ENOMEM);
@@ -462,7 +466,7 @@ static int bmd_read_header(AVFormatContext *s)
     int ret;
     uint32_t offset = 0;
 
-    ctx->shared_memory = (Memory*)MAP_FAILED;
+    ctx->shared_memory = MAP_FAILED;
     ctx->sem = SEM_FAILED;
 
     if ((ctx->shared_memory_fd = shm_open(ctx->memory_name, O_RDONLY , 0)) == -1) {
@@ -471,13 +475,17 @@ static int bmd_read_header(AVFormatContext *s)
         goto out;
     }
 
-    ctx->shared_memory = (Memory*)mmap(NULL, sizeof(Memory), PROT_READ, MAP_SHARED, ctx->shared_memory_fd, 0);
+    ctx->shared_memory = mmap(NULL, sizeof(Memory), PROT_READ, MAP_SHARED, ctx->shared_memory_fd, 0);
 
     if (ctx->shared_memory == MAP_FAILED) {
         av_log(s, AV_LOG_ERROR, "Failed to open shared memory\n");
         ret = AVERROR(EIO);
         goto out;
     }
+
+    ctx->meta_data = (uint8_t*)ctx->shared_memory;
+    ctx->video_data = ((uint8_t*)ctx->shared_memory) + VIDEO_OFFSET;
+    ctx->audio_data = ((uint8_t*)ctx->shared_memory) + AUDIO_OFFSET;
 
     snprintf(sem_name, sizeof(sem_name), "%s_sem", ctx->memory_name);
 
@@ -492,31 +500,31 @@ static int bmd_read_header(AVFormatContext *s)
 
     sem_wait(ctx->sem);
 
-    memcpy(&ctx->pixel_format, ctx->shared_memory->meta_data + offset, sizeof(ctx->pixel_format));
+    memcpy(&ctx->pixel_format, ctx->meta_data + offset, sizeof(ctx->pixel_format));
     offset += sizeof(ctx->pixel_format);
 
-    memcpy(&ctx->width, ctx->shared_memory->meta_data + offset, sizeof(ctx->width));
+    memcpy(&ctx->width, ctx->meta_data + offset, sizeof(ctx->width));
     offset += sizeof(ctx->width);
 
-    memcpy(&ctx->height, ctx->shared_memory->meta_data + offset, sizeof(ctx->height));
+    memcpy(&ctx->height, ctx->meta_data + offset, sizeof(ctx->height));
     offset += sizeof(ctx->height);
 
-    memcpy(&ctx->frame_duration, ctx->shared_memory->meta_data + offset, sizeof(ctx->frame_duration)); // numerator
+    memcpy(&ctx->frame_duration, ctx->meta_data + offset, sizeof(ctx->frame_duration)); // numerator
     offset += sizeof(ctx->frame_duration);
 
-    memcpy(&ctx->time_scale, ctx->shared_memory->meta_data + offset, sizeof(ctx->time_scale)); // denumerator
+    memcpy(&ctx->time_scale, ctx->meta_data + offset, sizeof(ctx->time_scale)); // denumerator
     offset += sizeof(ctx->time_scale);
 
-    memcpy(&ctx->field_dominance, ctx->shared_memory->meta_data + offset, sizeof(ctx->field_dominance));
+    memcpy(&ctx->field_dominance, ctx->meta_data + offset, sizeof(ctx->field_dominance));
     offset += sizeof(ctx->field_dominance);
 
-    memcpy(&ctx->audio_sample_rate, ctx->shared_memory->meta_data + offset, sizeof(ctx->audio_sample_rate));
+    memcpy(&ctx->audio_sample_rate, ctx->meta_data + offset, sizeof(ctx->audio_sample_rate));
     offset += sizeof(ctx->audio_sample_rate);
 
-    memcpy(&ctx->audio_sample_depth, ctx->shared_memory->meta_data + offset, sizeof(ctx->audio_sample_depth));
+    memcpy(&ctx->audio_sample_depth, ctx->meta_data + offset, sizeof(ctx->audio_sample_depth));
     offset += sizeof(ctx->audio_sample_depth);
 
-    memcpy(&ctx->audio_channels, ctx->shared_memory->meta_data + offset, sizeof(ctx->audio_channels));
+    memcpy(&ctx->audio_channels, ctx->meta_data + offset, sizeof(ctx->audio_channels));
     offset += sizeof(ctx->audio_channels);
 
     sem_post(ctx->sem);
