@@ -235,8 +235,8 @@ static AVStream *add_video_stream(AVFormatContext *oc)
     st->time_base.num = ctx->frame_duration;
     st->time_base.den = ctx->time_scale;
 
-    st->avg_frame_rate.num = ctx->frame_duration;
-    st->avg_frame_rate.den = ctx->time_scale;
+    st->avg_frame_rate.num = ctx->time_scale;
+    st->avg_frame_rate.den = ctx->frame_duration;
 
     switch (ctx->field_dominance) {
     case 'lowr':
