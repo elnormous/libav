@@ -438,7 +438,7 @@ static void* thread_proc(void *arg)
             memcpy(&data_size, ctx->audio_data + offset, sizeof(data_size));
             offset += sizeof(data_size);
 
-            buf = av_buffer_create(ctx->video_data + offset, data_size, av_buffer_default_free, NULL, 0);
+            buf = av_buffer_create(ctx->audio_data + offset, data_size, av_buffer_default_free, NULL, 0);
             if (!buf) {
                 av_log(s, AV_LOG_ERROR, "Failed to create buffer\n");
                 //return AVERROR(ENOMEM);
