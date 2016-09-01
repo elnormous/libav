@@ -386,6 +386,8 @@ static void* thread_proc(void *arg)
             memcpy(&video_pts, ctx->video_data + offset, sizeof(video_pts));
             offset += sizeof(video_pts);
 
+            prev_video_pts = video_pts;
+
             memcpy(&duration, ctx->video_data + offset, sizeof(duration));
             offset += sizeof(duration);
 
@@ -402,15 +404,14 @@ static void* thread_proc(void *arg)
             offset += sizeof(data_size);
 
             buf = av_buffer_create(ctx->video_data + offset, data_size, av_buffer_default_free, NULL, 0);
+
+            sem_post(ctx->sem);
+
             if (!buf) {
                 av_log(s, AV_LOG_ERROR, "Failed to create buffer\n");
                 //return AVERROR(ENOMEM);
                 return NULL;
             }
-
-            prev_video_pts = video_pts;
-
-            sem_post(ctx->sem);
 
             video_callback(ctx,
                            buf,
@@ -432,6 +433,8 @@ static void* thread_proc(void *arg)
             memcpy(&audio_pts, ctx->audio_data + offset, sizeof(audio_pts));
             offset += sizeof(audio_pts);
 
+            prev_audio_pts = audio_pts;
+
             memcpy(&sample_frame_count, ctx->audio_data + offset, sizeof(sample_frame_count));
             offset += sizeof(sample_frame_count);
 
@@ -439,15 +442,14 @@ static void* thread_proc(void *arg)
             offset += sizeof(data_size);
 
             buf = av_buffer_create(ctx->audio_data + offset, data_size, av_buffer_default_free, NULL, 0);
+
+            sem_post(ctx->sem);
+
             if (!buf) {
                 av_log(s, AV_LOG_ERROR, "Failed to create buffer\n");
                 //return AVERROR(ENOMEM);
                 return NULL;
             }
-
-            prev_audio_pts = audio_pts;
-
-            sem_post(ctx->sem);
 
             audio_callback(ctx,
                            buf,
