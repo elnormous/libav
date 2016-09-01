@@ -294,7 +294,7 @@ static int bmd_read_close(AVFormatContext *s)
     }
 
     if (ctx->shared_memory != MAP_FAILED) {
-        if (munmap(ctx->shared_memory, sizeof(Memory)) == -1) {
+        if (munmap(ctx->shared_memory, MEMORY_SIZE) == -1) {
             av_log(s, AV_LOG_ERROR, "Failed to unmap shared memory\n");
         }
         ctx->shared_memory = MAP_FAILED;
@@ -475,7 +475,7 @@ static int bmd_read_header(AVFormatContext *s)
         goto out;
     }
 
-    ctx->shared_memory = mmap(NULL, sizeof(Memory), PROT_READ, MAP_SHARED, ctx->shared_memory_fd, 0);
+    ctx->shared_memory = mmap(NULL, MEMORY_SIZE, PROT_READ, MAP_SHARED, ctx->shared_memory_fd, 0);
 
     if (ctx->shared_memory == MAP_FAILED) {
         av_log(s, AV_LOG_ERROR, "Failed to open shared memory\n");
