@@ -232,8 +232,7 @@ static AVStream *add_video_stream(AVFormatContext *oc)
     c->width         = ctx->width;
     c->height        = ctx->height;
 
-    st->time_base.num = ctx->frame_duration;
-    st->time_base.den = ctx->time_scale;
+    avpriv_set_pts_info(st, 64, ctx->frame_duration, ctx->time_scale);
 
     st->avg_frame_rate.num = ctx->time_scale;
     st->avg_frame_rate.den = ctx->frame_duration;
