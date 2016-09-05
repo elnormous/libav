@@ -47,8 +47,9 @@ typedef struct PacketQueue {
 } PacketQueue;
 
 static const uint32_t MEMORY_SIZE = 64 * 1024 * 1024; // 64 MiB
-static const uint32_t VIDEO_OFFSET = 128;
-static const uint32_t AUDIO_OFFSET = 40 * 1024 * 1024; // 40 MiB
+static const uint32_t METADATA_OFFSET = NAME_MAX + 1;
+static const uint32_t VIDEO_OFFSET = METADATA_OFFSET + 128;
+static const uint32_t AUDIO_OFFSET = VIDEO_OFFSET + 40 * 1024 * 1024; // 40 MiB
 
 typedef struct {
     const AVClass   *class;    /**< Class for private options. */
@@ -468,7 +469,6 @@ static void* thread_proc(void *arg)
 static int bmd_read_header(AVFormatContext *s)
 {
     BMDMemoryContext *ctx = s->priv_data;
-    char sem_name[256];
     int ret;
     uint32_t offset = 0;
 
@@ -489,13 +489,11 @@ static int bmd_read_header(AVFormatContext *s)
         goto out;
     }
 
-    ctx->meta_data = (uint8_t*)ctx->shared_memory;
+    ctx->meta_data = ((uint8_t*)ctx->shared_memory) + METADATA_OFFSET;
     ctx->video_data = ((uint8_t*)ctx->shared_memory) + VIDEO_OFFSET;
     ctx->audio_data = ((uint8_t*)ctx->shared_memory) + AUDIO_OFFSET;
 
-    snprintf(sem_name, sizeof(sem_name), "%s_sem", ctx->memory_name);
-
-    if ((ctx->sem = sem_open(sem_name, 0)) == SEM_FAILED) {
+    if ((ctx->sem = sem_open((const char*)ctx->shared_memory, 0)) == SEM_FAILED) {
         av_log(s, AV_LOG_ERROR, "Failed to open semaphore\n");
         ret = AVERROR(EIO);
         goto out;
