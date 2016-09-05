@@ -46,10 +46,12 @@ typedef struct PacketQueue {
     pthread_cond_t cond;
 } PacketQueue;
 
-static const uint32_t MEMORY_SIZE = 64 * 1024 * 1024; // 64 MiB
-static const uint32_t METADATA_OFFSET = NAME_MAX + 1;
-static const uint32_t VIDEO_OFFSET = METADATA_OFFSET + 128;
-static const uint32_t AUDIO_OFFSET = VIDEO_OFFSET + 40 * 1024 * 1024; // 40 MiB
+// 64 MiB
+#define MEMORY_SIZE (64 * 1024 * 1024)
+#define METADATA_OFFSET (NAME_MAX + 1)
+#define VIDEO_OFFSET (METADATA_OFFSET + 128)
+// 40 MiB
+#define AUDIO_OFFSET (VIDEO_OFFSET + 40 * 1024 * 1024)
 
 typedef struct {
     const AVClass   *class;    /**< Class for private options. */
