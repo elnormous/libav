@@ -730,6 +730,9 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
 
     if (ts >= 0x7FFFFFFF)
     {
+        struct timeval tv;
+        gettimeofday(&tv, NULL);
+
         av_log(s, AV_LOG_INFO, "Invalid pts! This shouldn't happen! Timestamp: %"PRId64", pts: %u\n", (int64_t)tv.tv_sec, ts);
         exit(1);
     }
