@@ -31,6 +31,8 @@
 #undef NDEBUG
 #include <assert.h>
 #include <sys/time.h>
+#include <stdint.h>
+#include <inttypes.h>
 
 static const AVCodecTag flv_video_codec_ids[] = {
     { AV_CODEC_ID_FLV1,     FLV_CODECID_H263 },
@@ -691,10 +693,10 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
             }
 
             timeinfo = localtime(&previous_tuesday_timestamp);
-            av_log(s, AV_LOG_INFO, "Previous stop on: %u, %s", (uint32_t)previous_tuesday_timestamp, asctime(timeinfo));
+            av_log(s, AV_LOG_INFO, "Previous stop on: %"PRId64", %s", (int64_t)previous_tuesday_timestamp, asctime(timeinfo));
 
             timeinfo = localtime(&next_tuesday_timestamp);
-            av_log(s, AV_LOG_INFO, "Next stop on: %u, %s", (uint32_t)next_tuesday_timestamp, asctime(timeinfo));
+            av_log(s, AV_LOG_INFO, "Next stop on: %"PRId64", %s", (int64_t)next_tuesday_timestamp, asctime(timeinfo));
 
             flv->delay = (millis - (int64_t)previous_tuesday_timestamp * 1000) % 0x7FFFFFFF;
             flv->stop_time = next_tuesday_timestamp;
@@ -712,6 +714,8 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
         return AVERROR(EINVAL);
     }
 
+    ts = pkt->dts + flv->delay; // add delay to force positive dts
+
     if (flv->stop_time)
     {
         struct timeval tv;
@@ -719,12 +723,16 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
 
         if (tv.tv_sec >= flv->stop_time)
         {
-            av_log(s, AV_LOG_INFO, "Stop reached! Timestamp: %u\n", (uint32_t)tv.tv_sec);
+            av_log(s, AV_LOG_INFO, "Stop reached! Timestamp: %"PRId64", pts: %u\n", (int64_t)tv.tv_sec, ts);
             exit(1);
         }
     }
 
-    ts = pkt->dts + flv->delay; // add delay to force positive dts
+    if (ts >= 0x7FFFFFFF)
+    {
+        av_log(s, AV_LOG_INFO, "Invalid pts! This shouldn't happen! Timestamp: %"PRId64", pts: %u\n", (int64_t)tv.tv_sec, ts);
+        exit(1);
+    }
 
     if (s->event_flags & AVSTREAM_EVENT_FLAG_METADATA_UPDATED) {
         write_metadata(s, ts);
