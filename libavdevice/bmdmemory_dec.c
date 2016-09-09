@@ -29,6 +29,7 @@
 #include "libavutil/log.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
+ #include "libavutil/time.h"
 #include "libavformat/avformat.h"
 #include "libavformat/internal.h"
 
@@ -346,7 +347,6 @@ static int audio_callback(BMDMemoryContext *ctx,
                           int nb_samples,
                           int64_t timestamp)
 {
-    AVCodecContext *c = ctx->audio_st->codec;
     AVPacket pkt;
 
     av_init_packet(&pkt);
@@ -375,9 +375,9 @@ static void* thread_proc(void *arg)
         sem_post(ctx->sem);
 
         if (video_ts > ctx->video_ts) {
-            int64_t     duration;
-            long        frame_width;
-            long        frame_height;
+            uint32_t    duration;
+            uint32_t    frame_width;
+            uint32_t    frame_height;
             uint32_t    stride;
             uint32_t    data_size;
             AVBufferRef *buf;
@@ -428,7 +428,7 @@ static void* thread_proc(void *arg)
         }
 
         if (audio_ts > ctx->audio_ts) {
-            long        sample_frame_count;
+            uint32_t    sample_frame_count;
             uint32_t    data_size;
             AVBufferRef *buf;
             uint32_t    offset = 0;
@@ -464,6 +464,8 @@ static void* thread_proc(void *arg)
                            sample_frame_count,
                            audio_ts);
         }
+
+        av_usleep(10000);
     }
 
     return NULL;
