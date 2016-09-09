@@ -73,8 +73,8 @@ typedef struct {
     // config
 
     uint32_t pixel_format;
-    long width;
-    long height;
+    uint32_t width;
+    uint32_t height;
     int64_t frame_duration;
     int64_t time_scale;
     uint32_t field_dominance;
@@ -242,13 +242,13 @@ static AVStream *add_video_stream(AVFormatContext *oc)
     st->avg_frame_rate.den = ctx->frame_duration;
 
     switch (ctx->field_dominance) {
-    case 'lowr':
+    case 1:
         c->field_order = AV_FIELD_TT;
         break;
-    case 'uppr':
+    case 2:
         c->field_order = AV_FIELD_BB;
         break;
-    case 'prog':
+    case 3:
         c->field_order = AV_FIELD_PROGRESSIVE;
         break;
     default:
@@ -259,12 +259,12 @@ static AVStream *add_video_stream(AVFormatContext *oc)
 
     switch (ctx->pixel_format) {
     // YUV first
-    case '2vuy':
+    case 0:
         c->pix_fmt   = AV_PIX_FMT_UYVY422;
         c->codec_id  = AV_CODEC_ID_RAWVIDEO;
         c->codec_tag = avcodec_pix_fmt_to_codec_tag(c->pix_fmt);
     break;
-    case 'v210':
+    case 1:
         c->pix_fmt             = AV_PIX_FMT_YUV422P10;
         c->codec_id            = AV_CODEC_ID_V210;
         c->bits_per_raw_sample = 10;
