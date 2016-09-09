@@ -75,8 +75,8 @@ typedef struct {
     uint32_t pixel_format;
     uint32_t width;
     uint32_t height;
-    int64_t frame_duration;
-    int64_t time_scale;
+    uint32_t frame_duration;
+    uint32_t time_scale;
     uint32_t field_dominance;
 
     uint32_t audio_sample_rate;
