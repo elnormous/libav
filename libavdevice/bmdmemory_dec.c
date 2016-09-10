@@ -185,7 +185,7 @@ static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block)
 
 static AVStream *add_audio_stream(AVFormatContext *oc)
 {
-    AVCodecContext *c;
+    AVCodecParameters *c;
     AVStream *st;
     BMDMemoryContext *ctx = oc->priv_data;
 
@@ -195,18 +195,16 @@ static AVStream *add_audio_stream(AVFormatContext *oc)
 
     st->time_base  = (AVRational){1, ctx->audio_sample_rate};
 
-    c              = st->codec;
+    c              = st->codecpar;
     c->codec_type  = AVMEDIA_TYPE_AUDIO;
     c->sample_rate = ctx->audio_sample_rate;
     c->channels    = ctx->audio_channels;
 
     switch (ctx->audio_sample_depth) {
     case 16:
-        c->sample_fmt = AV_SAMPLE_FMT_S16;
         c->codec_id   = AV_CODEC_ID_PCM_S16LE;
     break;
     case 32:
-        c->sample_fmt = AV_SAMPLE_FMT_S32;
         c->codec_id   = AV_CODEC_ID_PCM_S32LE;
     break;
     default:
@@ -216,14 +214,12 @@ static AVStream *add_audio_stream(AVFormatContext *oc)
         return NULL;
     }
 
-    c->flags |= CODEC_FLAG_GLOBAL_HEADER;
-
     return st;
 }
 
 static AVStream *add_video_stream(AVFormatContext *oc)
 {
-    AVCodecContext *c;
+    AVCodecParameters *c;
     AVStream *st;
     BMDMemoryContext *ctx = oc->priv_data;
 
@@ -231,7 +227,7 @@ static AVStream *add_video_stream(AVFormatContext *oc)
     if (!st)
         return NULL;
 
-    c                = st->codec;
+    c                = st->codecpar;
     c->codec_type    = AVMEDIA_TYPE_VIDEO;
 
     c->width         = ctx->width;
@@ -262,22 +258,18 @@ static AVStream *add_video_stream(AVFormatContext *oc)
     switch (ctx->pixel_format) {
     // YUV first
     case 0:
-        c->pix_fmt   = AV_PIX_FMT_UYVY422;
         c->codec_id  = AV_CODEC_ID_RAWVIDEO;
-        c->codec_tag = avcodec_pix_fmt_to_codec_tag(c->pix_fmt);
+        c->codec_tag = avcodec_pix_fmt_to_codec_tag(AV_PIX_FMT_UYVY422);
     break;
     case 1:
-        c->pix_fmt             = AV_PIX_FMT_YUV422P10;
         c->codec_id            = AV_CODEC_ID_V210;
-        c->bits_per_raw_sample = 10;
+        c->codec_tag = avcodec_pix_fmt_to_codec_tag(AV_PIX_FMT_YUV422P10);
     break;
     // RGB later
     default:
         av_log(oc, AV_LOG_ERROR, "Pixel format is not supported\n");
         return NULL;
     }
-
-    c->flags |= CODEC_FLAG_GLOBAL_HEADER;
 
     return st;
 }
@@ -344,7 +336,6 @@ static int video_callback(BMDMemoryContext *ctx,
 
 static int audio_callback(BMDMemoryContext *ctx,
                           AVBufferRef *buf,
-                          int nb_samples,
                           int64_t timestamp)
 {
     AVPacket pkt;
@@ -461,7 +452,6 @@ static void* thread_proc(void *arg)
 
             audio_callback(ctx,
                            buf,
-                           sample_frame_count,
                            audio_ts);
         }
 
@@ -479,6 +469,9 @@ static int bmd_read_header(AVFormatContext *s)
 
     ctx->shared_memory = MAP_FAILED;
     ctx->sem = SEM_FAILED;
+
+    if ((ret = packet_queue_init(&ctx->q)) < 0)
+        return ret;
 
     if ((ctx->shared_memory_fd = shm_open(ctx->memory_name, O_RDONLY , 0)) == -1) {
         av_log(s, AV_LOG_ERROR, "Failed to open shared memory\n");
