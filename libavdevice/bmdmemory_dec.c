@@ -197,7 +197,7 @@ static AVStream *add_audio_stream(AVFormatContext *oc)
 
     c              = st->codec;
     c->codec_type  = AVMEDIA_TYPE_AUDIO;
-    c->sample_rate = 48000;
+    c->sample_rate = ctx->audio_sample_rate;
     c->channels    = ctx->audio_channels;
 
     switch (ctx->audio_sample_depth) {
