@@ -455,8 +455,8 @@ static void* thread_proc(void *arg)
                              audio_ts);
         }
 
-        // sleep for twice the frame interval
-        av_usleep(2000 * ctx->time_scale / ctx->frame_duration);
+        // sleep for half the frame interval
+        av_usleep(500 * 1000 * ctx->frame_duration / ctx->time_scale);
     }
 
     return NULL;
