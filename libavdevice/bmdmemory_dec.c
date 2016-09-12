@@ -366,7 +366,6 @@ static void* thread_proc(void *arg)
     uint32_t    video_stride;
     uint32_t    video_data_size;
     AVBufferRef *video_buf;
-    
 
     uint64_t    audio_ts;
     uint32_t    audio_sample_frame_count;
