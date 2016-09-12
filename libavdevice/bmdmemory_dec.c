@@ -311,11 +311,11 @@ static int bmd_read_close(AVFormatContext *s)
     return 0;
 }
 
-static int video_callback(BMDMemoryContext *ctx,
-                          AVBufferRef *buf,
-                          int width, int height, int stride,
-                          int64_t timestamp,
-                          int64_t duration)
+static int add_video_packet(BMDMemoryContext *ctx,
+                            AVBufferRef *buf,
+                            int width, int height, int stride,
+                            int64_t timestamp,
+                            int64_t duration)
 {
     AVPacket pkt;
 
@@ -334,9 +334,9 @@ static int video_callback(BMDMemoryContext *ctx,
     return packet_queue_put(&ctx->q, &pkt);
 }
 
-static int audio_callback(BMDMemoryContext *ctx,
-                          AVBufferRef *buf,
-                          int64_t timestamp)
+static int add_audio_packet(BMDMemoryContext *ctx,
+                            AVBufferRef *buf,
+                            int64_t timestamp)
 {
     AVPacket pkt;
 
@@ -356,106 +356,108 @@ static void* thread_proc(void *arg)
 {
     AVFormatContext *s = arg;
     BMDMemoryContext *ctx = s->priv_data;
-    uint64_t video_ts = 0;
-    uint64_t audio_ts = 0;
+
+    uint32_t    offset = 0;
+
+    uint64_t    video_ts;
+    uint32_t    video_duration;
+    uint32_t    video_frame_width;
+    uint32_t    video_frame_height;
+    uint32_t    video_stride;
+    uint32_t    video_data_size;
+    AVBufferRef *video_buf;
+    
+
+    uint64_t    audio_ts;
+    uint32_t    audio_sample_frame_count;
+    uint32_t    audio_data_size;
+    AVBufferRef *audio_buf;
 
     while (!ctx->done) {
+        video_buf = NULL;
+        audio_buf = NULL;
+
         sem_wait(ctx->sem);
+
         memcpy(&video_ts, ctx->video_data, sizeof(video_ts));
-        memcpy(&audio_ts, ctx->audio_data, sizeof(audio_ts));
-        sem_post(ctx->sem);
-
+        
         if (video_ts > ctx->video_ts) {
-            uint32_t    duration;
-            uint32_t    frame_width;
-            uint32_t    frame_height;
-            uint32_t    stride;
-            uint32_t    data_size;
-            AVBufferRef *buf;
-            uint32_t    offset = 0;
-
-            sem_wait(ctx->sem);
-
-            memcpy(&video_ts, ctx->video_data + offset, sizeof(video_ts));
-            offset += sizeof(video_ts);
-
             ctx->video_ts = video_ts;
 
-            memcpy(&duration, ctx->video_data + offset, sizeof(duration));
-            offset += sizeof(duration);
+            offset = sizeof(video_ts);
 
-            memcpy(&frame_width, ctx->video_data + offset, sizeof(frame_width));
-            offset += sizeof(frame_width);
+            memcpy(&video_duration, ctx->video_data + offset, sizeof(video_duration));
+            offset += sizeof(video_duration);
 
-            memcpy(&frame_height, ctx->video_data + offset, sizeof(frame_height));
-            offset += sizeof(frame_height);
+            memcpy(&video_frame_width, ctx->video_data + offset, sizeof(video_frame_width));
+            offset += sizeof(video_frame_width);
 
-            memcpy(&stride, ctx->video_data + offset, sizeof(stride));
-            offset += sizeof(stride);
+            memcpy(&video_frame_height, ctx->video_data + offset, sizeof(video_frame_height));
+            offset += sizeof(video_frame_height);
 
-            memcpy(&data_size, ctx->video_data + offset, sizeof(data_size));
-            offset += sizeof(data_size);
+            memcpy(&video_stride, ctx->video_data + offset, sizeof(video_stride));
+            offset += sizeof(video_stride);
 
-            buf = av_buffer_alloc(data_size);
+            memcpy(&video_data_size, ctx->video_data + offset, sizeof(video_data_size));
+            offset += sizeof(video_data_size);
 
-            if (!buf) {
+            video_buf = av_buffer_alloc(video_data_size);
+
+            if (!video_buf) {
                 sem_post(ctx->sem);
                 av_log(s, AV_LOG_ERROR, "Failed to create buffer\n");
                 //return AVERROR(ENOMEM);
                 return NULL;
             }
 
-            memcpy(buf->data, ctx->video_data + offset, data_size);
-
-            sem_post(ctx->sem);
-
-            video_callback(ctx,
-                           buf,
-                           frame_width,
-                           frame_height,
-                           stride,
-                           video_ts,
-                           duration);
+            memcpy(video_buf->data, ctx->video_data + offset, video_data_size);
         }
+
+        memcpy(&audio_ts, ctx->audio_data, sizeof(audio_ts));
 
         if (audio_ts > ctx->audio_ts) {
-            uint32_t    sample_frame_count;
-            uint32_t    data_size;
-            AVBufferRef *buf;
-            uint32_t    offset = 0;
-
-            sem_wait(ctx->sem);
-
-            memcpy(&audio_ts, ctx->audio_data + offset, sizeof(audio_ts));
-            offset += sizeof(audio_ts);
-
             ctx->audio_ts = audio_ts;
 
-            memcpy(&sample_frame_count, ctx->audio_data + offset, sizeof(sample_frame_count));
-            offset += sizeof(sample_frame_count);
+            offset = sizeof(audio_ts);
 
-            memcpy(&data_size, ctx->audio_data + offset, sizeof(data_size));
-            offset += sizeof(data_size);
+            memcpy(&audio_sample_frame_count, ctx->audio_data + offset, sizeof(audio_sample_frame_count));
+            offset += sizeof(audio_sample_frame_count);
 
-            buf = av_buffer_alloc(data_size);
+            memcpy(&audio_data_size, ctx->audio_data + offset, sizeof(audio_data_size));
+            offset += sizeof(audio_data_size);
 
-            if (!buf) {
+            audio_buf = av_buffer_alloc(audio_data_size);
+
+            if (!audio_buf) {
                 sem_post(ctx->sem);
                 av_log(s, AV_LOG_ERROR, "Failed to create buffer\n");
                 //return AVERROR(ENOMEM);
                 return NULL;
             }
 
-            memcpy(buf->data, ctx->audio_data + offset, data_size);
-
-            sem_post(ctx->sem);
-
-            audio_callback(ctx,
-                           buf,
-                           audio_ts);
+            memcpy(audio_buf->data, ctx->audio_data + offset, audio_data_size);
         }
 
-        av_usleep(10000);
+        sem_post(ctx->sem);
+
+        if (video_buf) {
+            add_video_packet(ctx,
+                             video_buf,
+                             video_frame_width,
+                             video_frame_height,
+                             video_stride,
+                             video_ts,
+                             video_duration);
+        }
+
+        if (audio_buf) {
+            add_audio_packet(ctx,
+                             audio_buf,
+                             audio_ts);
+        }
+
+        // sleep for twice the frame interval
+        av_usleep(2000 * ctx->time_scale / ctx->frame_duration);
     }
 
     return NULL;
