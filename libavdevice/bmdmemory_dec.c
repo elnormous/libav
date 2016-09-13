@@ -83,6 +83,9 @@ typedef struct {
     uint32_t audio_sample_rate;
     uint32_t audio_sample_depth;
     uint32_t audio_channels;
+
+    int64_t         timeout;
+    int64_t         last_time;
 } BMDMemoryContext;
 
 static int packet_queue_init(PacketQueue *q)
@@ -555,8 +558,20 @@ out:
 static int bmd_read_packet(AVFormatContext *s, AVPacket *pkt)
 {
     BMDMemoryContext *ctx = s->priv_data;
+    int ret;
 
-    return packet_queue_get(&ctx->q, pkt, 0);
+    if (av_gettime() - ctx->last_time > ctx->timeout * 1000000) {
+        ret = AVERROR_EOF;
+    }
+    else {
+        ret = packet_queue_get(&ctx->q, pkt, 0);
+
+        if (ret != AVERROR(EAGAIN)) {
+            ctx->last_time = av_gettime();
+        }
+    }
+
+    return ret;
 }
 
 
@@ -564,6 +579,7 @@ static int bmd_read_packet(AVFormatContext *s, AVPacket *pkt)
 #define D AV_OPT_FLAG_DECODING_PARAM
 static const AVOption options[] = {
     { "memory_name", "Memory name", O(memory_name), AV_OPT_TYPE_STRING, {.str = NULL}, 0, 0, D },
+    { "video_timeout",    "Video timeout", O(timeout), AV_OPT_TYPE_INT64, {.i64 = 3}, 0, INT_MAX, D },
     { NULL },
 };
 
