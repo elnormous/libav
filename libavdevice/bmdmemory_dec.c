@@ -547,7 +547,9 @@ static int bmd_read_header(AVFormatContext *s)
         av_log(s, AV_LOG_ERROR, "Failed to create thread\n");
         ret = AVERROR(ENOMEM);
         goto out;
-    }    
+    }
+    
+    ctx->last_time = av_gettime();
 
     return 0;
 out:
