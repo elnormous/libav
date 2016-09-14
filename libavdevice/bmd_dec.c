@@ -35,6 +35,8 @@
 #include <pthread.h>
 #include <libbmd/decklink_capture.h>
 
+#define MAX_QUEUE_SIZE 3
+
 typedef struct PacketQueue {
     AVPacketList *first_pkt, *last_pkt;
     int nb_packets;
@@ -95,16 +97,18 @@ static int packet_queue_put(PacketQueue *q, AVPacket *pkt)
 
     pthread_mutex_lock(&q->mutex);
 
-    if (!q->last_pkt) {
-        q->first_pkt = pkt1;
-    } else {
-        q->last_pkt->next = pkt1;
+    if (q->nb_packets <= MAX_QUEUE_SIZE) {
+        if (!q->last_pkt) {
+            q->first_pkt = pkt1;
+        } else {
+            q->last_pkt->next = pkt1;
+        }
+
+        q->last_pkt = pkt1;
+        q->nb_packets++;
+
+        pthread_cond_signal(&q->cond);
     }
-
-    q->last_pkt = pkt1;
-    q->nb_packets++;
-
-    pthread_cond_signal(&q->cond);
 
     pthread_mutex_unlock(&q->mutex);
     return 0;
@@ -270,16 +274,28 @@ static int video_callback(void *priv, uint8_t *frame,
 {
     BMDCaptureContext *ctx = priv;
     AVPacket pkt;
+    AVBufferRef *buf;
+
+    buf = av_buffer_alloc(stride * height);
+
+    if (!buf) {
+        av_log(s, AV_LOG_ERROR, "Failed to create buffer\n");
+        return AVERROR(ENOMEM);
+    }
+
+    memcpy(buf->data, frame, stride * height);
 
     av_init_packet(&pkt);
+
+    pkt.buf           = buf;
+    pkt.data          = buf->data;
+    pkt.size          = buf->size;
 
     pkt.pts = pkt.dts = timestamp / ctx->video_st->time_base.num;
     pkt.duration      = duration  / ctx->video_st->time_base.num;
 
     pkt.flags        |= AV_PKT_FLAG_KEY;
     pkt.stream_index  = ctx->video_st->index;
-    pkt.data          = frame;
-    pkt.size          = stride * height;
 
     return packet_queue_put(&ctx->q, &pkt);
 }
@@ -292,15 +308,27 @@ static int audio_callback(void *priv, uint8_t *frame,
     BMDCaptureContext *ctx = priv;
     AVCodecContext *c = ctx->audio_st->codec;
     AVPacket pkt;
+    AVBufferRef *buf;
+
+    buf = av_buffer_alloc(nb_samples * c->channels * (ctx->conf.audio_sample_depth / 8));
+
+    if (!buf) {
+        av_log(s, AV_LOG_ERROR, "Failed to create buffer\n");
+        return AVERROR(ENOMEM);
+    }
+
+    memcpy(buf->data, frame,
+           nb_samples * c->channels * (ctx->conf.audio_sample_depth / 8));
 
     av_init_packet(&pkt);
 
-    pkt.size          = nb_samples * c->channels *
-                        (ctx->conf.audio_sample_depth / 8);
+    pkt.buf           = buf;
+    pkt.data          = buf->data;
+    pkt.size          = buf->size;
+
     pkt.dts = pkt.pts = timestamp;
     pkt.flags        |= AV_PKT_FLAG_KEY;
     pkt.stream_index  = ctx->audio_st->index;
-    pkt.data          = frame;
 
     return packet_queue_put(&ctx->q, &pkt);
 }
