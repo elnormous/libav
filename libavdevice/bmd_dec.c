@@ -35,7 +35,7 @@
 #include <pthread.h>
 #include <libbmd/decklink_capture.h>
 
-#define MAX_QUEUE_SIZE 3
+#define MAX_QUEUE_SIZE 10
 
 typedef struct PacketQueue {
     AVPacketList *first_pkt, *last_pkt;
