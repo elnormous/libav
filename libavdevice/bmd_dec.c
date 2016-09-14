@@ -144,8 +144,6 @@ static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block)
     return ret;
 }
 
-
-
 typedef struct {
     const AVClass   *class;    /**< Class for private options. */
     DecklinkCapture *capture;
@@ -279,7 +277,6 @@ static int video_callback(void *priv, uint8_t *frame,
     buf = av_buffer_alloc(stride * height);
 
     if (!buf) {
-        av_log(s, AV_LOG_ERROR, "Failed to create buffer\n");
         return AVERROR(ENOMEM);
     }
 
@@ -313,7 +310,6 @@ static int audio_callback(void *priv, uint8_t *frame,
     buf = av_buffer_alloc(nb_samples * c->channels * (ctx->conf.audio_sample_depth / 8));
 
     if (!buf) {
-        av_log(s, AV_LOG_ERROR, "Failed to create buffer\n");
         return AVERROR(ENOMEM);
     }
 
