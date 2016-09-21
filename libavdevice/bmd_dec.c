@@ -33,6 +33,7 @@
 #include "libavformat/avformat.h"
 #include "libavformat/internal.h"
 
+#include <inttypes.h>
 #include <pthread.h>
 #include <libbmd/decklink_capture.h>
 
@@ -350,7 +351,7 @@ static int bmd_read_packet(AVFormatContext *s, AVPacket *pkt)
 
     if (av_gettime() - ctx->last_time > ctx->timeout * 1000000) {
         ret = AVERROR_EOF;
-        av_log(s, AV_LOG_ERROR, "didn't receive video input for %d seconds.\n", ctx->timeout);
+        av_log(s, AV_LOG_ERROR, "didn't receive video input for %" PRId64 " seconds.\n", ctx->timeout);
     }
     else {
         ret = packet_queue_get(&ctx->q, pkt, 0);
