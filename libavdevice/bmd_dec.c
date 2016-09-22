@@ -84,20 +84,13 @@ static int packet_queue_put(PacketQueue *q, AVPacket *pkt)
     pthread_mutex_lock(&q->mutex);
 
     if (q->nb_packets <= MAX_QUEUE_SIZE) {
-        AVPacket pkt_ref;
         AVPacketList *pkt_entry;
-        int err;
-
-        /* reference the packet */
-        if ((err = av_packet_ref(&pkt_ref, pkt)) != 0) {
-            return err;
-        }
 
         pkt_entry = (AVPacketList *)av_malloc(sizeof(AVPacketList));
         if (!pkt_entry) {
             return AVERROR(ENOMEM);
         }
-        pkt_entry->pkt  = pkt_ref;
+        pkt_entry->pkt  = *pkt;
         pkt_entry->next = NULL;
 
         if (!q->last_pkt) {
@@ -110,6 +103,9 @@ static int packet_queue_put(PacketQueue *q, AVPacket *pkt)
         q->nb_packets++;
 
         pthread_cond_signal(&q->cond);
+    }
+    else {
+        av_packet_unref(pkt);
     }
 
     pthread_mutex_unlock(&q->mutex);
@@ -296,7 +292,7 @@ static int bmd_read_close(AVFormatContext *s)
     return 0;
 }
 
-static int put_wallclock_packet(BMDCaptureContext *ctx, AVPacket *p)
+static int put_wallclock_packet(BMDCaptureContext *ctx, int64_t pts)
 {
     AVPacket pkt;
     char buf[21];
@@ -308,19 +304,15 @@ static int put_wallclock_packet(BMDCaptureContext *ctx, AVPacket *p)
     ret = av_new_packet(&pkt, size);
 
     if (ret != 0) {
-        goto out;
+        return ret;
     }
 
     memcpy(pkt.buf->data, buf, size);
 
-    pkt.pts = pkt.dts = p->pts;
+    pkt.pts = pkt.dts = pts;
     pkt.stream_index  = ctx->data_st->index;
 
-    ret = packet_queue_put(&ctx->q, &pkt);
-
-out:
-    av_packet_unref(&pkt);
-    return ret;
+    return packet_queue_put(&ctx->q, &pkt);
 }
 
 static int video_callback(void *priv, uint8_t *frame,
@@ -336,7 +328,7 @@ static int video_callback(void *priv, uint8_t *frame,
     ret = av_new_packet(&pkt, stride * height);
 
     if (ret != 0) {
-        goto out;
+        return out;
     }
 
     memcpy(pkt.buf->data, frame, stride * height);
@@ -348,18 +340,14 @@ static int video_callback(void *priv, uint8_t *frame,
     pkt.stream_index  = ctx->video_st->index;
 
     if (ctx->wallclock) {
-        ret = put_wallclock_packet(ctx, &pkt);
-        
+        ret = put_wallclock_packet(ctx, pkt.pts);
+
         if (ret < 0) {
-            goto out;
+            return ret;
         }
     }
 
-    ret = packet_queue_put(&ctx->q, &pkt);
-
-out:
-    av_packet_unref(&pkt);
-    return ret;
+    return packet_queue_put(&ctx->q, &pkt);
 }
 
 static int audio_callback(void *priv, uint8_t *frame,
@@ -375,7 +363,7 @@ static int audio_callback(void *priv, uint8_t *frame,
     ret = av_new_packet(&pkt, nb_samples * c->channels * (ctx->conf.audio_sample_depth / 8));
 
     if (ret != 0) {
-        goto out;
+        return ret;
     }
 
     memcpy(pkt.buf->data, frame,
@@ -385,11 +373,7 @@ static int audio_callback(void *priv, uint8_t *frame,
     pkt.flags        |= AV_PKT_FLAG_KEY;
     pkt.stream_index  = ctx->audio_st->index;
 
-    ret = packet_queue_put(&ctx->q, &pkt);
-
-out:
-    av_packet_unref(&pkt);
-    return ret;
+    return packet_queue_put(&ctx->q, &pkt);
 }
 
 static int bmd_read_header(AVFormatContext *s)
@@ -450,8 +434,8 @@ static int bmd_read_packet(AVFormatContext *s, AVPacket *pkt)
     return ret;
 }
 
-#define OD(x) offsetof(BMDCaptureContext, conf) + offsetof(DecklinkConf, x)
 #define OC(x) offsetof(BMDCaptureContext, x)
+#define OD(x) offsetof(BMDCaptureContext, conf) + offsetof(DecklinkConf, x)
 #define D AV_OPT_FLAG_DECODING_PARAM
 static const AVOption options[] = {
     { "instance",         "Device instance",    OD(instance),         AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
@@ -459,8 +443,8 @@ static const AVOption options[] = {
     { "video_connection", "Video connection",   OD(video_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { "video_format",     "Video pixel format", OD(pixel_format),     AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { "audio_connection", "Audio connection",   OD(audio_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-    { "wallclock",        "Add the wallclock",  OC(wallclock),        AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { "video_timeout",    "Video timeout",      OC(timeout),          AV_OPT_TYPE_INT64, {.i64 = 3}, 0, INT_MAX, D },
+    { "wallclock",        "Add the wallclock",  OC(wallclock),        AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { NULL },
 };
 
