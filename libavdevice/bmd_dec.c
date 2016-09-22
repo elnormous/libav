@@ -147,6 +147,8 @@ typedef struct {
     PacketQueue     q;
     AVStream        *audio_st;
     AVStream        *video_st;
+    int64_t         timeout;
+    int64_t         last_time;
 } BMDCaptureContext;
 
 static AVStream *add_audio_stream(AVFormatContext *oc, DecklinkConf *conf)
@@ -340,6 +342,8 @@ static int bmd_read_header(AVFormatContext *s)
         goto out;
     }
 
+    ctx->last_time = av_gettime();
+
     decklink_capture_start(ctx->capture);
 
     return 0;
@@ -351,19 +355,33 @@ out:
 static int bmd_read_packet(AVFormatContext *s, AVPacket *pkt)
 {
     BMDCaptureContext *ctx = s->priv_data;
+    int ret;
 
-    return packet_queue_get(&ctx->q, pkt, 0);
+    if (av_gettime() - ctx->last_time > ctx->timeout * 1000000) {
+        ret = AVERROR_EOF;
+        av_log(s, AV_LOG_ERROR, "didn't receive video input for %" PRId64 " seconds.\n", ctx->timeout);
+    }
+    else {
+        ret = packet_queue_get(&ctx->q, pkt, 0);
+
+        if (ret != AVERROR(EAGAIN)) {
+            ctx->last_time = av_gettime();
+        }
+    }
+
+    return ret;
 }
 
-
-#define O(x) offsetof(BMDCaptureContext, conf) + offsetof(DecklinkConf, x)
+#define OC(x) offsetof(BMDCaptureContext, x)
+#define OD(x) offsetof(BMDCaptureContext, conf) + offsetof(DecklinkConf, x)
 #define D AV_OPT_FLAG_DECODING_PARAM
 static const AVOption options[] = {
-    { "instance",         "Device instance",    O(instance),         AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-    { "video_mode",       "Video mode",         O(video_mode),       AV_OPT_TYPE_INT, {.i64 = 0}, -1, INT_MAX, D },
-    { "video_connection", "Video connection",   O(video_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-    { "video_format",     "Video pixel format", O(pixel_format),     AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-    { "audio_connection", "Audio connection",   O(audio_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
+    { "instance",         "Device instance",    OD(instance),         AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
+    { "video_mode",       "Video mode",         OD(video_mode),       AV_OPT_TYPE_INT, {.i64 = 0}, -1, INT_MAX, D },
+    { "video_connection", "Video connection",   OD(video_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
+    { "video_format",     "Video pixel format", OD(pixel_format),     AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
+    { "audio_connection", "Audio connection",   OD(audio_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
+    { "video_timeout",    "Video timeout",      OC(timeout),          AV_OPT_TYPE_INT64, {.i64 = 3}, 0, INT_MAX, D },
     { NULL },
 };
 
