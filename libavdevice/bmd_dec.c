@@ -293,7 +293,7 @@ static int bmd_read_close(AVFormatContext *s)
     return 0;
 }
 
-static int put_wallclock_packet(BMDCaptureContext *ctx, AVPacket *p)
+static int put_wallclock_packet(BMDCaptureContext *ctx, int64_t pts)
 {
     AVPacket pkt;
     char buf[21];
@@ -310,7 +310,7 @@ static int put_wallclock_packet(BMDCaptureContext *ctx, AVPacket *p)
 
     memcpy(pkt.buf->data, buf, size);
 
-    pkt.pts = pkt.dts = p->pts;
+    pkt.pts = pkt.dts = pts;
     pkt.stream_index  = ctx->data_st->index;
 
     ret = packet_queue_put(&ctx->q, &pkt);
@@ -345,7 +345,7 @@ static int video_callback(void *priv, uint8_t *frame,
     pkt.stream_index  = ctx->video_st->index;
 
     if (ctx->wallclock) {
-        ret = put_wallclock_packet(ctx, &pkt);
+        ret = put_wallclock_packet(ctx, pkt.pts);
         
         if (ret < 0) {
             goto out;
