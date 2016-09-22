@@ -2442,10 +2442,41 @@ int av_read_pause(AVFormatContext *s)
     return AVERROR(ENOSYS);
 }
 
+static void free_stream(AVStream **pst)
+{
+    AVStream *st = *pst;
+    int i;
+
+    if (!st)
+        return;
+
+    for (i = 0; i < st->nb_side_data; i++)
+        av_freep(&st->side_data[i].data);
+    av_freep(&st->side_data);
+
+    if (st->parser)
+        av_parser_close(st->parser);
+
+    if (st->attached_pic.data)
+        av_packet_unref(&st->attached_pic);
+
+    av_freep(&st->internal);
+
+    av_dict_free(&st->metadata);
+    av_freep(&st->probe_data.buf);
+    av_free(st->index_entries);
+    av_free(st->codec->extradata);
+    av_free(st->codec->subtitle_header);
+    av_free(st->codec);
+    av_free(st->priv_data);
+    av_free(st->info);
+
+    av_freep(pst);
+}
+
 void avformat_free_context(AVFormatContext *s)
 {
-    int i, j;
-    AVStream *st;
+    int i;
 
     if (!s)
         return;
@@ -2454,30 +2485,9 @@ void avformat_free_context(AVFormatContext *s)
     if (s->iformat && s->iformat->priv_class && s->priv_data)
         av_opt_free(s->priv_data);
 
-    for (i = 0; i < s->nb_streams; i++) {
-        /* free all data in a stream component */
-        st = s->streams[i];
+    for (i = 0; i < s->nb_streams; i++)
+        free_stream(&s->streams[i]);
 
-        for (j = 0; j < st->nb_side_data; j++)
-            av_freep(&st->side_data[j].data);
-        av_freep(&st->side_data);
-        st->nb_side_data = 0;
-
-        if (st->parser) {
-            av_parser_close(st->parser);
-        }
-        if (st->attached_pic.data)
-            av_packet_unref(&st->attached_pic);
-        av_dict_free(&st->metadata);
-        av_freep(&st->probe_data.buf);
-        av_free(st->index_entries);
-        av_free(st->codec->extradata);
-        av_free(st->codec->subtitle_header);
-        av_free(st->codec);
-        av_free(st->priv_data);
-        av_free(st->info);
-        av_free(st);
-    }
     for (i = s->nb_programs - 1; i >= 0; i--) {
         av_dict_free(&s->programs[i]->metadata);
         av_freep(&s->programs[i]->stream_index);
@@ -2543,22 +2553,29 @@ AVStream *avformat_new_stream(AVFormatContext *s, const AVCodec *c)
         av_free(st);
         return NULL;
     }
+
+    st->internal = av_mallocz(sizeof(*st->internal));
+    if (!st->internal)
+        goto fail;
+
     if (s->iformat) {
         /* no default bitrate if decoding */
         st->codec->bit_rate = 0;
 
         /* default pts setting is MPEG-like */
         avpriv_set_pts_info(st, 33, 1, 90000);
+        /* we set the current DTS to 0 so that formats without any timestamps
+         * but durations get some timestamps, formats with some unknown
+         * timestamps have their first few packets buffered and the
+         * timestamps corrected before they are returned to the user */
+        st->cur_dts = 0;
+    } else {
+        st->cur_dts = AV_NOPTS_VALUE;
     }
 
     st->index      = s->nb_streams;
     st->start_time = AV_NOPTS_VALUE;
     st->duration   = AV_NOPTS_VALUE;
-    /* we set the current DTS to 0 so that formats without any timestamps
-     * but durations get some timestamps, formats with some unknown
-     * timestamps have their first few packets buffered and the
-     * timestamps corrected before they are returned to the user */
-    st->cur_dts       = 0;
     st->first_dts     = AV_NOPTS_VALUE;
     st->probe_packets = MAX_PROBE_PACKETS;
 
@@ -2573,6 +2590,9 @@ AVStream *avformat_new_stream(AVFormatContext *s, const AVCodec *c)
 
     s->streams[s->nb_streams++] = st;
     return st;
+fail:
+    free_stream(&st);
+    return NULL;
 }
 
 AVProgram *av_new_program(AVFormatContext *ac, int id)
@@ -3120,7 +3140,7 @@ uint8_t *av_stream_get_side_data(AVStream *st, enum AVPacketSideDataType type,
     return NULL;
 }
 
-uint8_t *ff_stream_new_side_data(AVStream *st, enum AVPacketSideDataType type,
+uint8_t *av_stream_new_side_data(AVStream *st, enum AVPacketSideDataType type,
                                  int size)
 {
     AVPacketSideData *sd, *tmp;

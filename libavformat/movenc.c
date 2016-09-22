@@ -2285,10 +2285,21 @@ static int mov_write_moov_tag(AVIOContext *pb, MOVMuxContext *mov,
             mov->tracks[i].tref_id  = mov->tracks[mov->chapter_track].track_id;
         }
     for (i = 0; i < mov->nb_streams; i++) {
-        if (mov->tracks[i].tag == MKTAG('r','t','p',' ')) {
-            mov->tracks[i].tref_tag = MKTAG('h','i','n','t');
-            mov->tracks[i].tref_id =
-                mov->tracks[mov->tracks[i].src_track].track_id;
+        MOVTrack *track = &mov->tracks[i];
+        if (track->tag == MKTAG('r','t','p',' ')) {
+            track->tref_tag = MKTAG('h','i','n','t');
+            track->tref_id = mov->tracks[track->src_track].track_id;
+        } else if (track->enc->codec_type == AVMEDIA_TYPE_AUDIO) {
+            int * fallback, size;
+            fallback = (int*)av_stream_get_side_data(track->st,
+                                                     AV_PKT_DATA_FALLBACK_TRACK,
+                                                     &size);
+            if (fallback != NULL && size == sizeof(int)) {
+                if (*fallback >= 0 && *fallback < mov->nb_streams) {
+                    track->tref_tag = MKTAG('f','a','l','l');
+                    track->tref_id = mov->tracks[*fallback].track_id;
+                }
+            }
         }
     }
 
@@ -3506,10 +3517,18 @@ int ff_mov_write_packet(AVFormatContext *s, AVPacket *pkt)
     if (trk->start_dts == AV_NOPTS_VALUE) {
         trk->start_dts = pkt->dts;
         if (trk->frag_discont) {
-            /* Pretend the whole stream started at dts=0, with earlier fragments
-             * already written, with a duration summing up to pkt->dts. */
-            trk->frag_start   = pkt->dts;
-            trk->start_dts    = 0;
+            if (mov->use_editlist) {
+                /* Pretend the whole stream started at pts=0, with earlier fragments
+                 * already written. If the stream started at pts=0, the duration sum
+                 * of earlier fragments would have been pkt->pts. */
+                trk->frag_start = pkt->pts;
+                trk->start_dts  = pkt->dts - pkt->pts;
+            } else {
+                /* Pretend the whole stream started at dts=0, with earlier fragments
+                 * already written, with a duration summing up to pkt->dts. */
+                trk->frag_start = pkt->dts;
+                trk->start_dts  = 0;
+            }
             trk->frag_discont = 0;
         } else if (pkt->dts && mov->moov_written)
             av_log(s, AV_LOG_WARNING,
@@ -3577,14 +3596,23 @@ static int mov_write_packet(AVFormatContext *s, AVPacket *pkt)
         int64_t frag_duration = 0;
         int size = pkt->size;
 
-        if (!pkt->size)
-            return 0;             /* Discard 0 sized packets */
-
         if (mov->flags & FF_MOV_FLAG_FRAG_DISCONT) {
             int i;
             for (i = 0; i < s->nb_streams; i++)
                 mov->tracks[i].frag_discont = 1;
             mov->flags &= ~FF_MOV_FLAG_FRAG_DISCONT;
+        }
+
+        if (!pkt->size) {
+            if (trk->start_dts == AV_NOPTS_VALUE && trk->frag_discont) {
+                trk->start_dts = pkt->dts;
+                if (pkt->pts != AV_NOPTS_VALUE)
+                    trk->start_cts = pkt->pts - pkt->dts;
+                else
+                    trk->start_cts = 0;
+            }
+
+            return 0;             /* Discard 0 sized packets */
         }
 
         if (trk->entry)
@@ -4048,6 +4076,7 @@ static int mov_write_header(AVFormatContext *s)
     if (mov->flags & FF_MOV_FLAG_EMPTY_MOOV &&
         !(mov->flags & FF_MOV_FLAG_DELAY_MOOV)) {
         mov_write_moov_tag(pb, mov, s);
+        avio_flush(pb);
         mov->moov_written = 1;
         if (mov->flags & FF_MOV_FLAG_GLOBAL_SIDX)
             mov->reserved_header_pos = avio_tell(pb);
