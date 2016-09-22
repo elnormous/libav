@@ -275,7 +275,7 @@ static int video_callback(void *priv, uint8_t *frame,
     ret = av_new_packet(&pkt, stride * height);
 
     if (ret != 0) {
-        return out;
+        return ret;
     }
 
     memcpy(pkt.buf->data, frame, stride * height);
