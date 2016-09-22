@@ -83,20 +83,13 @@ static int packet_queue_put(PacketQueue *q, AVPacket *pkt)
     pthread_mutex_lock(&q->mutex);
 
     if (q->nb_packets <= MAX_QUEUE_SIZE) {
-        AVPacket pkt_ref;
         AVPacketList *pkt_entry;
-        int err;
-
-        /* reference the packet */
-        if ((err = av_packet_ref(&pkt_ref, pkt)) != 0) {
-            return err;
-        }
 
         pkt_entry = (AVPacketList *)av_malloc(sizeof(AVPacketList));
         if (!pkt_entry) {
             return AVERROR(ENOMEM);
         }
-        pkt_entry->pkt  = pkt_ref;
+        pkt_entry->pkt  = *pkt;
         pkt_entry->next = NULL;
 
         if (!q->last_pkt) {
@@ -109,6 +102,9 @@ static int packet_queue_put(PacketQueue *q, AVPacket *pkt)
         q->nb_packets++;
 
         pthread_cond_signal(&q->cond);
+    }
+    else {
+        av_packet_unref(pkt);
     }
 
     pthread_mutex_unlock(&q->mutex);
@@ -154,6 +150,8 @@ typedef struct {
     AVStream        *video_st;
     AVStream        *data_st;
     int             wallclock;
+    int64_t         timeout;
+    int64_t         last_time;
 } BMDCaptureContext;
 
 static AVStream *add_audio_stream(AVFormatContext *oc, DecklinkConf *conf)
@@ -305,7 +303,7 @@ static int put_wallclock_packet(BMDCaptureContext *ctx, int64_t pts)
     ret = av_new_packet(&pkt, size);
 
     if (ret != 0) {
-        goto out;
+        return ret;
     }
 
     memcpy(pkt.buf->data, buf, size);
@@ -313,11 +311,7 @@ static int put_wallclock_packet(BMDCaptureContext *ctx, int64_t pts)
     pkt.pts = pkt.dts = pts;
     pkt.stream_index  = ctx->data_st->index;
 
-    ret = packet_queue_put(&ctx->q, &pkt);
-
-out:
-    av_packet_unref(&pkt);
-    return ret;
+    return packet_queue_put(&ctx->q, &pkt);
 }
 
 static int video_callback(void *priv, uint8_t *frame,
@@ -333,7 +327,7 @@ static int video_callback(void *priv, uint8_t *frame,
     ret = av_new_packet(&pkt, stride * height);
 
     if (ret != 0) {
-        goto out;
+        return out;
     }
 
     memcpy(pkt.buf->data, frame, stride * height);
@@ -346,17 +340,13 @@ static int video_callback(void *priv, uint8_t *frame,
 
     if (ctx->wallclock) {
         ret = put_wallclock_packet(ctx, pkt.pts);
-        
+
         if (ret < 0) {
-            goto out;
+            return ret;
         }
     }
 
-    ret = packet_queue_put(&ctx->q, &pkt);
-
-out:
-    av_packet_unref(&pkt);
-    return ret;
+    return packet_queue_put(&ctx->q, &pkt);
 }
 
 static int audio_callback(void *priv, uint8_t *frame,
@@ -372,7 +362,7 @@ static int audio_callback(void *priv, uint8_t *frame,
     ret = av_new_packet(&pkt, nb_samples * c->channels * (ctx->conf.audio_sample_depth / 8));
 
     if (ret != 0) {
-        goto out;
+        return ret;
     }
 
     memcpy(pkt.buf->data, frame,
@@ -382,11 +372,7 @@ static int audio_callback(void *priv, uint8_t *frame,
     pkt.flags        |= AV_PKT_FLAG_KEY;
     pkt.stream_index  = ctx->audio_st->index;
 
-    ret = packet_queue_put(&ctx->q, &pkt);
-
-out:
-    av_packet_unref(&pkt);
-    return ret;
+    return packet_queue_put(&ctx->q, &pkt);
 }
 
 static int bmd_read_header(AVFormatContext *s)
@@ -417,6 +403,8 @@ static int bmd_read_header(AVFormatContext *s)
         goto out;
     }
 
+    ctx->last_time = av_gettime();
+
     decklink_capture_start(ctx->capture);
 
     return 0;
@@ -428,29 +416,34 @@ out:
 static int bmd_read_packet(AVFormatContext *s, AVPacket *pkt)
 {
     BMDCaptureContext *ctx = s->priv_data;
+    int ret;
 
-    return packet_queue_get(&ctx->q, pkt, 0);
+    if (av_gettime() - ctx->last_time > ctx->timeout * 1000000) {
+        ret = AVERROR_EOF;
+        av_log(s, AV_LOG_ERROR, "didn't receive video input for %" PRId64 " seconds.\n", ctx->timeout);
+    }
+    else {
+        ret = packet_queue_get(&ctx->q, pkt, 0);
+
+        if (ret != AVERROR(EAGAIN)) {
+            ctx->last_time = av_gettime();
+        }
+    }
+
+    return ret;
 }
 
-
-#define OD(x) offsetof(BMDCaptureContext, conf) + offsetof(DecklinkConf, x)
 #define OC(x) offsetof(BMDCaptureContext, x)
+#define OD(x) offsetof(BMDCaptureContext, conf) + offsetof(DecklinkConf, x)
 #define D AV_OPT_FLAG_DECODING_PARAM
 static const AVOption options[] = {
-<<<<<<< HEAD
     { "instance",         "Device instance",    OD(instance),         AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-    { "video_mode",       "Video mode",         OD(video_mode),       AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
+    { "video_mode",       "Video mode",         OD(video_mode),       AV_OPT_TYPE_INT, {.i64 = 0}, -1, INT_MAX, D },
     { "video_connection", "Video connection",   OD(video_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { "video_format",     "Video pixel format", OD(pixel_format),     AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { "audio_connection", "Audio connection",   OD(audio_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
+    { "video_timeout",    "Video timeout",      OC(timeout),          AV_OPT_TYPE_INT64, {.i64 = 3}, 0, INT_MAX, D },
     { "wallclock",        "Add the wallclock",  OC(wallclock),        AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-=======
-    { "instance",         "Device instance",    O(instance),         AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-    { "video_mode",       "Video mode",         O(video_mode),       AV_OPT_TYPE_INT, {.i64 = 0}, -1, INT_MAX, D },
-    { "video_connection", "Video connection",   O(video_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-    { "video_format",     "Video pixel format", O(pixel_format),     AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-    { "audio_connection", "Audio connection",   O(audio_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
->>>>>>> bmd
     { NULL },
 };
 
