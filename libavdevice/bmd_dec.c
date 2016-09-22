@@ -63,8 +63,7 @@ static void packet_queue_flush(PacketQueue *q)
     pthread_mutex_lock(&q->mutex);
     for (pkt = q->first_pkt; pkt != NULL; pkt = pkt1) {
         pkt1 = pkt->next;
-        av_free_packet(&pkt->pkt);
-        av_freep(&pkt);
+        av_packet_unref(&pkt->pkt);
     }
     q->last_pkt   = NULL;
     q->first_pkt  = NULL;
@@ -373,7 +372,7 @@ static int audio_callback(void *priv, uint8_t *frame,
     ret = av_new_packet(&pkt, nb_samples * c->channels * (ctx->conf.audio_sample_depth / 8));
 
     if (ret != 0) {
-        return out;
+        goto out;
     }
 
     memcpy(pkt.buf->data, frame,
