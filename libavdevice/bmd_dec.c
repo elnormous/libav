@@ -80,31 +80,32 @@ static void packet_queue_end(PacketQueue *q)
 
 static int packet_queue_put(PacketQueue *q, AVPacket *pkt)
 {
-    AVPacketList *pkt1;
-    int err;
-
-    /* duplicate the packet */
-    if ((err = av_dup_packet(pkt)) < 0) {
-        return err;
-    }
-
-    pkt1 = (AVPacketList *)av_malloc(sizeof(AVPacketList));
-    if (!pkt1) {
-        return AVERROR(ENOMEM);
-    }
-    pkt1->pkt  = *pkt;
-    pkt1->next = NULL;
-
     pthread_mutex_lock(&q->mutex);
 
     if (q->nb_packets <= MAX_QUEUE_SIZE) {
-        if (!q->last_pkt) {
-            q->first_pkt = pkt1;
-        } else {
-            q->last_pkt->next = pkt1;
+        AVPacket pkt_ref;
+        AVPacketList *pkt_entry;
+        int err;
+
+        /* reference the packet */
+        if ((err = av_packet_ref(&pkt_ref, pkt)) != 0) {
+            return err;
         }
 
-        q->last_pkt = pkt1;
+        pkt_entry = (AVPacketList *)av_malloc(sizeof(AVPacketList));
+        if (!pkt_entry) {
+            return AVERROR(ENOMEM);
+        }
+        pkt_entry->pkt  = pkt_ref;
+        pkt_entry->next = NULL;
+
+        if (!q->last_pkt) {
+            q->first_pkt = pkt_entry;
+        } else {
+            q->last_pkt->next = pkt_entry;
+        }
+
+        q->last_pkt = pkt_entry;
         q->nb_packets++;
 
         pthread_cond_signal(&q->cond);
@@ -116,21 +117,21 @@ static int packet_queue_put(PacketQueue *q, AVPacket *pkt)
 
 static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block)
 {
-    AVPacketList *pkt1;
+    AVPacketList *pkt_entry;
     int ret;
 
     pthread_mutex_lock(&q->mutex);
 
-    for (;; ) {
-        pkt1 = q->first_pkt;
-        if (pkt1) {
-            q->first_pkt = pkt1->next;
+    for (;;) {
+        pkt_entry = q->first_pkt;
+        if (pkt_entry) {
+            q->first_pkt = pkt_entry->next;
             if (!q->first_pkt) {
                 q->last_pkt = NULL;
             }
             q->nb_packets--;
-            *pkt = pkt1->pkt;
-            av_free(pkt1);
+            *pkt = pkt_entry->pkt;
+            av_free(pkt_entry);
             ret = pkt->size;
             break;
         } else if (!block) {
@@ -272,21 +273,15 @@ static int video_callback(void *priv, uint8_t *frame,
 {
     BMDCaptureContext *ctx = priv;
     AVPacket pkt;
-    AVBufferRef *buf;
+    int ret;
 
-    buf = av_buffer_alloc(stride * height);
+    ret = av_new_packet(&pkt, stride * height);
 
-    if (!buf) {
-        return AVERROR(ENOMEM);
+    if (ret != 0) {
+        goto out;
     }
 
-    memcpy(buf->data, frame, stride * height);
-
-    av_init_packet(&pkt);
-
-    pkt.buf           = buf;
-    pkt.data          = buf->data;
-    pkt.size          = buf->size;
+    memcpy(pkt.buf->data, frame, stride * height);
 
     pkt.pts = pkt.dts = timestamp / ctx->video_st->time_base.num;
     pkt.duration      = duration  / ctx->video_st->time_base.num;
@@ -294,7 +289,11 @@ static int video_callback(void *priv, uint8_t *frame,
     pkt.flags        |= AV_PKT_FLAG_KEY;
     pkt.stream_index  = ctx->video_st->index;
 
-    return packet_queue_put(&ctx->q, &pkt);
+    ret = packet_queue_put(&ctx->q, &pkt);
+
+out:
+    av_packet_unref(&pkt);
+    return ret;
 }
 
 static int audio_callback(void *priv, uint8_t *frame,
@@ -305,28 +304,26 @@ static int audio_callback(void *priv, uint8_t *frame,
     BMDCaptureContext *ctx = priv;
     AVCodecContext *c = ctx->audio_st->codec;
     AVPacket pkt;
-    AVBufferRef *buf;
+    int ret;
 
-    buf = av_buffer_alloc(nb_samples * c->channels * (ctx->conf.audio_sample_depth / 8));
+    ret = av_new_packet(&pkt, nb_samples * c->channels * (ctx->conf.audio_sample_depth / 8));
 
-    if (!buf) {
-        return AVERROR(ENOMEM);
+    if (ret != 0) {
+        return out;
     }
 
-    memcpy(buf->data, frame,
+    memcpy(pkt.buf->data, frame,
            nb_samples * c->channels * (ctx->conf.audio_sample_depth / 8));
-
-    av_init_packet(&pkt);
-
-    pkt.buf           = buf;
-    pkt.data          = buf->data;
-    pkt.size          = buf->size;
 
     pkt.dts = pkt.pts = timestamp;
     pkt.flags        |= AV_PKT_FLAG_KEY;
     pkt.stream_index  = ctx->audio_st->index;
 
-    return packet_queue_put(&ctx->q, &pkt);
+    ret = packet_queue_put(&ctx->q, &pkt);
+
+out:
+    av_packet_unref(&pkt);
+    return ret;
 }
 
 static int bmd_read_header(AVFormatContext *s)
