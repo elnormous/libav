@@ -397,7 +397,7 @@ static void* thread_proc(void *arg)
             memcpy(video_buf->data, shared_memory + offset, video_data_size);
         }
 
-        offset = ((uint32_t*)shared_memory)[1];
+        offset = ((uint32_t*)shared_memory)[2];
 
         audio_ts = *((uint64_t*)shared_memory + offset);
         offset += sizeof(audio_ts);
