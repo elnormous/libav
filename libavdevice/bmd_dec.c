@@ -63,6 +63,7 @@ static void packet_queue_flush(PacketQueue *q)
     for (pkt = q->first_pkt; pkt != NULL; pkt = pkt1) {
         pkt1 = pkt->next;
         av_packet_unref(&pkt->pkt);
+        av_free(pkt);
     }
     q->last_pkt   = NULL;
     q->first_pkt  = NULL;
