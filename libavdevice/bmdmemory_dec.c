@@ -365,7 +365,7 @@ static void* thread_proc(void *arg)
 
         offset = ((uint32_t*)shared_memory)[1];
 
-        video_ts = *((uint64_t*)shared_memory + offset);
+        video_ts = *((uint64_t*)(shared_memory + offset));
         offset += sizeof(video_ts);
         
         if (video_ts > ctx->video_ts) {
@@ -399,7 +399,7 @@ static void* thread_proc(void *arg)
 
         offset = ((uint32_t*)shared_memory)[2];
 
-        audio_ts = *((uint64_t*)shared_memory + offset);
+        audio_ts = *((uint64_t*)(shared_memory + offset));
         offset += sizeof(audio_ts);
 
         if (audio_ts > ctx->audio_ts) {
