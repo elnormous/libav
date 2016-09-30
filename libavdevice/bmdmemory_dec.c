@@ -452,31 +452,31 @@ static void read_meta_data(BMDMemoryContext *ctx)
 
     offset = ((uint32_t*)shared_memory)[0];
 
-    memcpy(&ctx->pixel_format, shared_memory + offset, sizeof(ctx->pixel_format));
+    ctx->pixel_format = *((uint32_t*)(shared_memory + offset));
     offset += sizeof(ctx->pixel_format);
 
-    memcpy(&ctx->width, shared_memory + offset, sizeof(ctx->width));
+    ctx->width = *((uint32_t*)(shared_memory + offset));
     offset += sizeof(ctx->width);
 
-    memcpy(&ctx->height, shared_memory + offset, sizeof(ctx->height));
+    ctx->height = *((uint32_t*)(shared_memory + offset));
     offset += sizeof(ctx->height);
 
-    memcpy(&ctx->frame_duration, shared_memory + offset, sizeof(ctx->frame_duration)); // numerator
+    ctx->frame_duration = *((uint32_t*)(shared_memory + offset)); // numerator
     offset += sizeof(ctx->frame_duration);
 
-    memcpy(&ctx->time_scale, shared_memory + offset, sizeof(ctx->time_scale)); // denumerator
+    ctx->time_scale = *((uint32_t*)(shared_memory + offset)); // denumerator
     offset += sizeof(ctx->time_scale);
 
-    memcpy(&ctx->field_dominance, shared_memory + offset, sizeof(ctx->field_dominance));
+    ctx->field_dominance = *((uint32_t*)(shared_memory + offset));
     offset += sizeof(ctx->field_dominance);
 
-    memcpy(&ctx->audio_sample_rate, shared_memory + offset, sizeof(ctx->audio_sample_rate));
+    ctx->audio_sample_rate = *((uint32_t*)(shared_memory + offset));
     offset += sizeof(ctx->audio_sample_rate);
 
-    memcpy(&ctx->audio_sample_depth, shared_memory + offset, sizeof(ctx->audio_sample_depth));
+    ctx->audio_sample_depth = *((uint32_t*)(shared_memory + offset));
     offset += sizeof(ctx->audio_sample_depth);
 
-    memcpy(&ctx->audio_channels, shared_memory + offset, sizeof(ctx->audio_channels));
+    ctx->audio_channels = *((uint32_t*)(shared_memory + offset));
     offset += sizeof(ctx->audio_channels);
 }
 
