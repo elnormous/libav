@@ -923,10 +923,10 @@ FF_ENABLE_DEPRECATION_WARNINGS
         dec = ist->dec_ctx;
 
         if (dec->codec_type == AVMEDIA_TYPE_VIDEO) {
-            snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "video drop=%" PRIu64 " ", dec->dropped_frames);
+            snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), " video drop=%" PRIu64, dec->dropped_frames);
         }
         else if (dec->codec_type == AVMEDIA_TYPE_AUDIO) {
-            snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "audio drop=%" PRIu64 " ", dec->dropped_frames);
+            snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), " audio drop=%" PRIu64, dec->dropped_frames);
         }
     }
 
