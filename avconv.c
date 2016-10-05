@@ -922,10 +922,10 @@ FF_ENABLE_DEPRECATION_WARNINGS
         ist = input_streams[i];
         dec = ist->dec_ctx;
 
-        if (ist->codec_type == AVMEDIA_TYPE_VIDEO) {
+        if (dec->codec_type == AVMEDIA_TYPE_VIDEO) {
             snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "video drop=" PRIu64 " ", dec->dropped_frames);
         }
-        else if (ist->codec_type == AVMEDIA_TYPE_AUDIO) {
+        else if (dec->codec_type == AVMEDIA_TYPE_AUDIO) {
             snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "audio drop=" PRIu64 " ", dec->dropped_frames);
         }
     }
