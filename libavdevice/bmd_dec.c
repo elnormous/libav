@@ -80,7 +80,6 @@ static void packet_queue_end(PacketQueue *q)
 
 static int packet_queue_put(PacketQueue *q, AVPacket *pkt)
 {
-    int ret = 0;
     pthread_mutex_lock(&q->mutex);
 
     if (q->nb_packets <= MAX_QUEUE_SIZE) {
