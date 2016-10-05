@@ -806,9 +806,11 @@ static void print_report(int is_last_report, int64_t timer_start)
 {
     char buf[1024];
     OutputStream *ost;
+    InputStream *ist;
     AVFormatContext *oc;
     int64_t total_size;
     AVCodecContext *enc;
+    AVCodecContext *dec;
     int frame_number, vid, i;
     double bitrate, ti1, pts;
     static int64_t last_time = -1;
@@ -915,6 +917,18 @@ FF_ENABLE_DEPRECATION_WARNINGS
     snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf),
             "size=%8.0fkB time=%0.2f bitrate=%6.1fkbits/s",
             (double)total_size / 1024, ti1, bitrate);
+
+    for (i = 0; i < nb_input_streams; i++) {
+        ist = input_streams[i];
+        dec = ist->dec_ctx;
+
+        if (ist->codec_type == AVMEDIA_TYPE_VIDEO) {
+            snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "video drop=" PRIu64 " ", dec->dropped_frames);
+        }
+        else if (ist->codec_type == AVMEDIA_TYPE_AUDIO) {
+            snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "audio drop=" PRIu64 " ", dec->dropped_frames);
+        }
+    }
 
     if (nb_frames_drop)
         snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), " drop=%d",

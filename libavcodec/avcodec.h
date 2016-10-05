@@ -2928,6 +2928,8 @@ typedef struct AVCodecContext {
      * - decoding: Set by libavcodec before calling get_format()
      */
     enum AVPixelFormat sw_pix_fmt;
+
+    uint64_t dropped_frames;
 } AVCodecContext;
 
 /**
