@@ -64,6 +64,7 @@ static void packet_queue_flush(PacketQueue *q)
     for (pkt = q->first_pkt; pkt != NULL; pkt = pkt1) {
         pkt1 = pkt->next;
         av_packet_unref(&pkt->pkt);
+        av_free(pkt);
     }
     q->last_pkt   = NULL;
     q->first_pkt  = NULL;
@@ -87,6 +88,7 @@ static int packet_queue_put(PacketQueue *q, AVPacket *pkt)
 
         pkt_entry = (AVPacketList *)av_malloc(sizeof(AVPacketList));
         if (!pkt_entry) {
+            pthread_mutex_unlock(&q->mutex);
             return AVERROR(ENOMEM);
         }
         pkt_entry->pkt  = *pkt;
@@ -105,6 +107,7 @@ static int packet_queue_put(PacketQueue *q, AVPacket *pkt)
     }
     else {
         av_packet_unref(pkt);
+        return AVERROR(ENOBUFS);
     }
 
     pthread_mutex_unlock(&q->mutex);
@@ -294,6 +297,7 @@ static int bmd_read_close(AVFormatContext *s)
 static int put_wallclock_packet(BMDCaptureContext *ctx, int64_t pts)
 {
     AVPacket pkt;
+    AVCodecContext *c = ctx->data_st->codec;
     char buf[21];
     int size;
     int ret;
@@ -311,7 +315,12 @@ static int put_wallclock_packet(BMDCaptureContext *ctx, int64_t pts)
     pkt.pts = pkt.dts = pts;
     pkt.stream_index  = ctx->data_st->index;
 
-    return packet_queue_put(&ctx->q, &pkt);
+    if (packet_queue_put(&ctx->q, &pkt) != 0) {
+        av_log(c, AV_LOG_WARNING, "no space in queue, data frame dropped.\n");
+        ctx->video_st->codec->dropped_frames++;
+    }
+
+    return 0;
 }
 
 static int video_callback(void *priv, uint8_t *frame,
@@ -321,6 +330,7 @@ static int video_callback(void *priv, uint8_t *frame,
                           int64_t flags)
 {
     BMDCaptureContext *ctx = priv;
+    AVCodecContext *c = ctx->video_st->codec;
     AVPacket pkt;
     int ret;
 
@@ -339,14 +349,15 @@ static int video_callback(void *priv, uint8_t *frame,
     pkt.stream_index  = ctx->video_st->index;
 
     if (ctx->wallclock) {
-        ret = put_wallclock_packet(ctx, pkt.pts);
-
-        if (ret < 0) {
-            return ret;
-        }
+        put_wallclock_packet(ctx, pkt.pts);
     }
 
-    return packet_queue_put(&ctx->q, &pkt);
+    if (packet_queue_put(&ctx->q, &pkt) != 0) {
+        av_log(c, AV_LOG_WARNING, "no space in queue, video frame dropped.\n");
+        ctx->video_st->codec->dropped_frames++;
+    }
+
+    return 0;
 }
 
 static int audio_callback(void *priv, uint8_t *frame,
@@ -372,7 +383,12 @@ static int audio_callback(void *priv, uint8_t *frame,
     pkt.flags        |= AV_PKT_FLAG_KEY;
     pkt.stream_index  = ctx->audio_st->index;
 
-    return packet_queue_put(&ctx->q, &pkt);
+    if (packet_queue_put(&ctx->q, &pkt) != 0) {
+        av_log(c, AV_LOG_WARNING, "no space in queue, audio frame dropped.\n");
+        ctx->audio_st->codec->dropped_frames++;
+    }
+
+    return 0;
 }
 
 static int bmd_read_header(AVFormatContext *s)
