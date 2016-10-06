@@ -105,6 +105,7 @@ static int packet_queue_put(PacketQueue *q, AVPacket *pkt)
         pthread_cond_signal(&q->cond);
     }
     else {
+        av_log(oc, AV_LOG_WARNING, "no space in queue, frame dropped.\n");
         av_packet_unref(pkt);
         return AVERROR(ENOBUFS);
     }
