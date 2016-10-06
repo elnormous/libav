@@ -108,6 +108,7 @@ static int packet_queue_put(PacketQueue *q, AVPacket *pkt)
     }
     else {
         av_packet_unref(pkt);
+        pthread_mutex_unlock(&q->mutex);
         return AVERROR(ENOBUFS);
     }
 
