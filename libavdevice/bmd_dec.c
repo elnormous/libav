@@ -35,7 +35,7 @@
 #include <pthread.h>
 #include <libbmd/decklink_capture.h>
 
-#define MAX_QUEUE_SIZE 10
+#define MAX_QUEUE_SIZE 25
 
 typedef struct PacketQueue {
     AVPacketList *first_pkt, *last_pkt;
@@ -80,38 +80,47 @@ static void packet_queue_end(PacketQueue *q)
 
 static int packet_queue_put(PacketQueue *q, AVPacket *pkt)
 {
+    AVPacketList *pkt_entry;
+    int ret = 0;
     pthread_mutex_lock(&q->mutex);
 
-    if (q->nb_packets <= MAX_QUEUE_SIZE) {
-        AVPacketList *pkt_entry;
+    if (q->nb_packets >= MAX_QUEUE_SIZE) {
+        ret = AVERROR(ENOBUFS);
 
-        pkt_entry = (AVPacketList *)av_malloc(sizeof(AVPacketList));
-        if (!pkt_entry) {
-            pthread_mutex_unlock(&q->mutex);
-            return AVERROR(ENOMEM);
+        pkt_entry = q->first_pkt;
+
+        if (pkt_entry) {
+            q->first_pkt = pkt_entry->next;
+
+            if (!q->first_pkt) {
+                q->last_pkt = NULL;
+            }
+            q->nb_packets--;
+            av_packet_unref(pkt_entry->pkt);
+            av_free(pkt_entry);
         }
-        pkt_entry->pkt  = *pkt;
-        pkt_entry->next = NULL;
-
-        if (!q->last_pkt) {
-            q->first_pkt = pkt_entry;
-        } else {
-            q->last_pkt->next = pkt_entry;
-        }
-
-        q->last_pkt = pkt_entry;
-        q->nb_packets++;
-
-        pthread_cond_signal(&q->cond);
     }
-    else {
-        av_packet_unref(pkt);
+
+    pkt_entry = (AVPacketList *)av_malloc(sizeof(AVPacketList));
+    if (!pkt_entry) {
         pthread_mutex_unlock(&q->mutex);
-        return AVERROR(ENOBUFS);
+        return AVERROR(ENOMEM);
+    }
+    pkt_entry->pkt  = *pkt;
+    pkt_entry->next = NULL;
+
+    if (!q->last_pkt) {
+        q->first_pkt = pkt_entry;
+    } else {
+        q->last_pkt->next = pkt_entry;
     }
 
+    q->last_pkt = pkt_entry;
+    q->nb_packets++;
+
+    pthread_cond_signal(&q->cond);
     pthread_mutex_unlock(&q->mutex);
-    return 0;
+    return ret;
 }
 
 static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block)
