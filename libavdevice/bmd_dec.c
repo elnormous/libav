@@ -317,7 +317,7 @@ static int put_wallclock_packet(BMDCaptureContext *ctx, int64_t pts)
 
     if (packet_queue_put(&ctx->q, &pkt) != 0) {
         av_log(c, AV_LOG_WARNING, "no space in queue, data frame dropped.\n");
-        ctx->video_st->codec->dropped_frames++;
+        ctx->data_st->codec->dropped_frames++;
     }
 
     return 0;
