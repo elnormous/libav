@@ -98,7 +98,7 @@ static int packet_queue_put(PacketQueue *q, AVPacket *pkt)
                 q->last_pkt = NULL;
             }
             q->nb_packets--;
-            av_packet_unref(pkt_entry->pkt);
+            av_packet_unref(&pkt_entry->pkt);
             av_free(pkt_entry);
         }
     }
