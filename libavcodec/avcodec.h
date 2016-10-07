@@ -2929,7 +2929,7 @@ typedef struct AVCodecContext {
      */
     enum AVPixelFormat sw_pix_fmt;
 
-    uint64_t dropped_frames;
+    int dropped_frames;
 } AVCodecContext;
 
 /**
