@@ -36,8 +36,6 @@
 #include <pthread.h>
 #include <libbmd/decklink_capture.h>
 
-#define MAX_QUEUE_SIZE 10
-
 typedef struct PacketQueue {
     AVPacketList *first_pkt, *last_pkt;
     int nb_packets;
@@ -79,39 +77,49 @@ static void packet_queue_end(PacketQueue *q)
     pthread_cond_destroy(&q->cond);
 }
 
-static int packet_queue_put(PacketQueue *q, AVPacket *pkt)
+static int packet_queue_put(PacketQueue *q, AVPacket *pkt, int64_t queue_size)
 {
+    AVPacketList *pkt_entry;
+    int ret = 0;
     pthread_mutex_lock(&q->mutex);
 
-    if (q->nb_packets <= MAX_QUEUE_SIZE) {
-        AVPacketList *pkt_entry;
+    if (queue_size > 0 && q->nb_packets >= queue_size) {
+        ret = AVERROR(ENOBUFS);
 
-        pkt_entry = (AVPacketList *)av_malloc(sizeof(AVPacketList));
-        if (!pkt_entry) {
-            pthread_mutex_unlock(&q->mutex);
-            return AVERROR(ENOMEM);
+        pkt_entry = q->first_pkt;
+
+        if (pkt_entry) {
+            q->first_pkt = pkt_entry->next;
+
+            if (!q->first_pkt) {
+                q->last_pkt = NULL;
+            }
+            q->nb_packets--;
+            av_packet_unref(&pkt_entry->pkt);
+            av_free(pkt_entry);
         }
-        pkt_entry->pkt  = *pkt;
-        pkt_entry->next = NULL;
-
-        if (!q->last_pkt) {
-            q->first_pkt = pkt_entry;
-        } else {
-            q->last_pkt->next = pkt_entry;
-        }
-
-        q->last_pkt = pkt_entry;
-        q->nb_packets++;
-
-        pthread_cond_signal(&q->cond);
-    }
-    else {
-        av_packet_unref(pkt);
-        return AVERROR(ENOBUFS);
     }
 
+    pkt_entry = (AVPacketList *)av_malloc(sizeof(AVPacketList));
+    if (!pkt_entry) {
+        pthread_mutex_unlock(&q->mutex);
+        return AVERROR(ENOMEM);
+    }
+    pkt_entry->pkt  = *pkt;
+    pkt_entry->next = NULL;
+
+    if (!q->last_pkt) {
+        q->first_pkt = pkt_entry;
+    } else {
+        q->last_pkt->next = pkt_entry;
+    }
+
+    q->last_pkt = pkt_entry;
+    q->nb_packets++;
+
+    pthread_cond_signal(&q->cond);
     pthread_mutex_unlock(&q->mutex);
-    return 0;
+    return ret;
 }
 
 static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block)
@@ -154,6 +162,7 @@ typedef struct {
     AVStream        *data_st;
     int             wallclock;
     int64_t         timeout;
+    int64_t         queue_size;
     int64_t         last_time;
 } BMDCaptureContext;
 
@@ -349,10 +358,10 @@ static int video_callback(void *priv, uint8_t *frame,
     pkt.stream_index  = ctx->video_st->index;
 
     if (ctx->wallclock) {
-        put_wallclock_packet(ctx, pkt.pts);
+        put_wallclock_packet(ctx, pkt.pts, ctx->queue_size);
     }
 
-    if (packet_queue_put(&ctx->q, &pkt) != 0) {
+    if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
         av_log(c, AV_LOG_WARNING, "no space in queue, video frame dropped.\n");
         ctx->video_st->codec->dropped_frames++;
     }
@@ -383,7 +392,7 @@ static int audio_callback(void *priv, uint8_t *frame,
     pkt.flags        |= AV_PKT_FLAG_KEY;
     pkt.stream_index  = ctx->audio_st->index;
 
-    if (packet_queue_put(&ctx->q, &pkt) != 0) {
+    if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
         av_log(c, AV_LOG_WARNING, "no space in queue, audio frame dropped.\n");
         ctx->audio_st->codec->dropped_frames++;
     }
@@ -459,6 +468,7 @@ static const AVOption options[] = {
     { "video_format",     "Video pixel format", OD(pixel_format),     AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { "audio_connection", "Audio connection",   OD(audio_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { "video_timeout",    "Video timeout",      OC(timeout),          AV_OPT_TYPE_INT64, {.i64 = 3}, 0, INT_MAX, D },
+    { "queue_size",       "Packet queue size",  OC(queue_size),       AV_OPT_TYPE_INT64, {.i64 = 25}, 0, INT_MAX, D },
     { "wallclock",        "Add the wallclock",  OC(wallclock),        AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { NULL },
 };
