@@ -61,8 +61,8 @@ static void packet_queue_flush(PacketQueue *q)
     pthread_mutex_lock(&q->mutex);
     for (pkt = q->first_pkt; pkt != NULL; pkt = pkt1) {
         pkt1 = pkt->next;
-        av_free_packet(&pkt->pkt);
-        av_freep(&pkt);
+        av_packet_unref(&pkt->pkt);
+        av_free(pkt);
     }
     q->last_pkt   = NULL;
     q->first_pkt  = NULL;
@@ -77,57 +77,68 @@ static void packet_queue_end(PacketQueue *q)
     pthread_cond_destroy(&q->cond);
 }
 
-static int packet_queue_put(PacketQueue *q, AVPacket *pkt)
+static int packet_queue_put(PacketQueue *q, AVPacket *pkt, int64_t queue_size)
 {
-    AVPacketList *pkt1;
-    int err;
-
-    /* duplicate the packet */
-    if ((err = av_dup_packet(pkt)) < 0) {
-        return err;
-    }
-
-    pkt1 = (AVPacketList *)av_malloc(sizeof(AVPacketList));
-    if (!pkt1) {
-        return AVERROR(ENOMEM);
-    }
-    pkt1->pkt  = *pkt;
-    pkt1->next = NULL;
-
+    AVPacketList *pkt_entry;
+    int ret = 0;
     pthread_mutex_lock(&q->mutex);
 
-    if (!q->last_pkt) {
-        q->first_pkt = pkt1;
-    } else {
-        q->last_pkt->next = pkt1;
-    }
+    if (queue_size > 0 && q->nb_packets >= queue_size) {
+        ret = AVERROR(ENOBUFS);
 
-    q->last_pkt = pkt1;
-    q->nb_packets++;
+        pkt_entry = q->first_pkt;
 
-    pthread_cond_signal(&q->cond);
+        if (pkt_entry) {
+            q->first_pkt = pkt_entry->next;
 
-    pthread_mutex_unlock(&q->mutex);
-    return 0;
-}
-
-static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block)
-{
-    AVPacketList *pkt1;
-    int ret;
-
-    pthread_mutex_lock(&q->mutex);
-
-    for (;; ) {
-        pkt1 = q->first_pkt;
-        if (pkt1) {
-            q->first_pkt = pkt1->next;
             if (!q->first_pkt) {
                 q->last_pkt = NULL;
             }
             q->nb_packets--;
-            *pkt = pkt1->pkt;
-            av_free(pkt1);
+            av_packet_unref(&pkt_entry->pkt);
+            av_free(pkt_entry);
+        }
+    }
+
+    pkt_entry = (AVPacketList *)av_malloc(sizeof(AVPacketList));
+    if (!pkt_entry) {
+        pthread_mutex_unlock(&q->mutex);
+        return AVERROR(ENOMEM);
+    }
+    pkt_entry->pkt  = *pkt;
+    pkt_entry->next = NULL;
+
+    if (!q->last_pkt) {
+        q->first_pkt = pkt_entry;
+    } else {
+        q->last_pkt->next = pkt_entry;
+    }
+
+    q->last_pkt = pkt_entry;
+    q->nb_packets++;
+
+    pthread_cond_signal(&q->cond);
+    pthread_mutex_unlock(&q->mutex);
+    return ret;
+}
+
+static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block)
+{
+    AVPacketList *pkt_entry;
+    int ret;
+
+    pthread_mutex_lock(&q->mutex);
+
+    for (;;) {
+        pkt_entry = q->first_pkt;
+        if (pkt_entry) {
+            q->first_pkt = pkt_entry->next;
+            if (!q->first_pkt) {
+                q->last_pkt = NULL;
+            }
+            q->nb_packets--;
+            *pkt = pkt_entry->pkt;
+            av_free(pkt_entry);
             ret = pkt->size;
             break;
         } else if (!block) {
@@ -141,8 +152,6 @@ static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block)
     return ret;
 }
 
-
-
 typedef struct {
     const AVClass   *class;    /**< Class for private options. */
     DecklinkCapture *capture;
@@ -152,6 +161,9 @@ typedef struct {
     AVStream        *video_st;
     AVStream        *data_st;
     int             wallclock;
+    int64_t         timeout;
+    int64_t         queue_size;
+    int64_t         last_time;
 } BMDCaptureContext;
 
 static AVStream *add_audio_stream(AVFormatContext *oc, DecklinkConf *conf)
@@ -291,20 +303,31 @@ static int bmd_read_close(AVFormatContext *s)
     return 0;
 }
 
-static int put_wallclock_packet(BMDCaptureContext *ctx, AVPacket *p)
+static int put_wallclock_packet(BMDCaptureContext *ctx, int64_t pts)
 {
     AVPacket pkt;
+    AVCodecContext *c = ctx->data_st->codec;
     char buf[21];
+    int size;
+    int ret;
 
-    av_init_packet(&pkt);
+    size = snprintf(buf, sizeof(buf), "%" PRId64, av_gettime());
 
-    pkt.pts          = pkt.dts = p->pts;
-    pkt.stream_index = ctx->data_st->index;
+    ret = av_new_packet(&pkt, size);
 
-    pkt.size = snprintf(buf, sizeof(buf), "%" PRId64, av_gettime());
-    pkt.data = buf;
+    if (ret != 0) {
+        return ret;
+    }
 
-    packet_queue_put(&ctx->q, &pkt);
+    memcpy(pkt.buf->data, buf, size);
+
+    pkt.pts = pkt.dts = pts;
+    pkt.stream_index  = ctx->data_st->index;
+
+    if (packet_queue_put(&ctx->q, &pkt) != 0) {
+        av_log(c, AV_LOG_WARNING, "no space in queue, data frame dropped.\n");
+        ctx->data_st->codec->dropped_frames++;
+    }
 
     return 0;
 }
@@ -316,22 +339,34 @@ static int video_callback(void *priv, uint8_t *frame,
                           int64_t flags)
 {
     BMDCaptureContext *ctx = priv;
+    AVCodecContext *c = ctx->video_st->codec;
     AVPacket pkt;
+    int ret;
 
-    av_init_packet(&pkt);
+    ret = av_new_packet(&pkt, stride * height);
+
+    if (ret != 0) {
+        return ret;
+    }
+
+    memcpy(pkt.buf->data, frame, stride * height);
 
     pkt.pts = pkt.dts = timestamp / ctx->video_st->time_base.num;
     pkt.duration      = duration  / ctx->video_st->time_base.num;
 
     pkt.flags        |= AV_PKT_FLAG_KEY;
     pkt.stream_index  = ctx->video_st->index;
-    pkt.data          = frame;
-    pkt.size          = stride * height;
 
-    if (ctx->wallclock)
-        put_wallclock_packet(ctx, &pkt);
+    if (ctx->wallclock) {
+        put_wallclock_packet(ctx, pkt.pts, ctx->queue_size);
+    }
 
-    return packet_queue_put(&ctx->q, &pkt);
+    if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
+        av_log(c, AV_LOG_WARNING, "no space in queue, video frame dropped.\n");
+        ctx->video_st->codec->dropped_frames++;
+    }
+
+    return 0;
 }
 
 static int audio_callback(void *priv, uint8_t *frame,
@@ -342,17 +377,27 @@ static int audio_callback(void *priv, uint8_t *frame,
     BMDCaptureContext *ctx = priv;
     AVCodecContext *c = ctx->audio_st->codec;
     AVPacket pkt;
+    int ret;
 
-    av_init_packet(&pkt);
+    ret = av_new_packet(&pkt, nb_samples * c->channels * (ctx->conf.audio_sample_depth / 8));
 
-    pkt.size          = nb_samples * c->channels *
-                        (ctx->conf.audio_sample_depth / 8);
+    if (ret != 0) {
+        return ret;
+    }
+
+    memcpy(pkt.buf->data, frame,
+           nb_samples * c->channels * (ctx->conf.audio_sample_depth / 8));
+
     pkt.dts = pkt.pts = timestamp;
     pkt.flags        |= AV_PKT_FLAG_KEY;
     pkt.stream_index  = ctx->audio_st->index;
-    pkt.data          = frame;
 
-    return packet_queue_put(&ctx->q, &pkt);
+    if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
+        av_log(c, AV_LOG_WARNING, "no space in queue, audio frame dropped.\n");
+        ctx->audio_st->codec->dropped_frames++;
+    }
+
+    return 0;
 }
 
 static int bmd_read_header(AVFormatContext *s)
@@ -383,6 +428,8 @@ static int bmd_read_header(AVFormatContext *s)
         goto out;
     }
 
+    ctx->last_time = av_gettime();
+
     decklink_capture_start(ctx->capture);
 
     return 0;
@@ -394,13 +441,25 @@ out:
 static int bmd_read_packet(AVFormatContext *s, AVPacket *pkt)
 {
     BMDCaptureContext *ctx = s->priv_data;
+    int ret;
 
-    return packet_queue_get(&ctx->q, pkt, 0);
+    if (av_gettime() - ctx->last_time > ctx->timeout * 1000000) {
+        ret = AVERROR_EOF;
+        av_log(s, AV_LOG_ERROR, "didn't receive video input for %" PRId64 " seconds.\n", ctx->timeout);
+    }
+    else {
+        ret = packet_queue_get(&ctx->q, pkt, 0);
+
+        if (ret != AVERROR(EAGAIN)) {
+            ctx->last_time = av_gettime();
+        }
+    }
+
+    return ret;
 }
 
-
-#define OD(x) offsetof(BMDCaptureContext, conf) + offsetof(DecklinkConf, x)
 #define OC(x) offsetof(BMDCaptureContext, x)
+#define OD(x) offsetof(BMDCaptureContext, conf) + offsetof(DecklinkConf, x)
 #define D AV_OPT_FLAG_DECODING_PARAM
 static const AVOption options[] = {
     { "instance",         "Device instance",    OD(instance),         AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
@@ -408,6 +467,8 @@ static const AVOption options[] = {
     { "video_connection", "Video connection",   OD(video_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { "video_format",     "Video pixel format", OD(pixel_format),     AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { "audio_connection", "Audio connection",   OD(audio_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
+    { "video_timeout",    "Video timeout",      OC(timeout),          AV_OPT_TYPE_INT64, {.i64 = 3}, 0, INT_MAX, D },
+    { "queue_size",       "Packet queue size",  OC(queue_size),       AV_OPT_TYPE_INT64, {.i64 = 25}, 0, INT_MAX, D },
     { "wallclock",        "Add the wallclock",  OC(wallclock),        AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { NULL },
 };

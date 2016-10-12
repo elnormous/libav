@@ -809,6 +809,7 @@ static void print_report(int is_last_report, int64_t timer_start)
     AVFormatContext *oc;
     int64_t total_size;
     AVCodecContext *enc;
+    AVCodecContext *dec;
     int frame_number, vid, i;
     double bitrate, ti1, pts;
     static int64_t last_time = -1;
@@ -915,6 +916,18 @@ FF_ENABLE_DEPRECATION_WARNINGS
     snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf),
             "size=%8.0fkB time=%0.2f bitrate=%6.1fkbits/s",
             (double)total_size / 1024, ti1, bitrate);
+
+    for (i = 0; i < nb_input_files; i++) {
+        AVFormatContext *is = input_files[i]->ctx;
+        int dropped_frames = 0;
+        
+        for (int s = 0; s < is->nb_streams; ++s) {
+            dec = is->streams[s]->codec;
+            dropped_frames += dec->dropped_frames;
+        }
+
+        snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), " frame drop=%d", dropped_frames);
+    }
 
     if (nb_frames_drop)
         snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), " drop=%d",
