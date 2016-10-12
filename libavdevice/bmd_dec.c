@@ -325,7 +325,7 @@ static int put_wallclock_packet(BMDCaptureContext *ctx, int64_t pts)
     pkt.pts = pkt.dts = pts;
     pkt.stream_index  = ctx->data_st->index;
 
-    if (packet_queue_put(&ctx->q, &pkt) != 0) {
+    if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
         av_log(c, AV_LOG_WARNING, "no space in queue, data frame dropped.\n");
         ctx->data_st->codec->dropped_frames++;
     }
@@ -359,7 +359,7 @@ static int video_callback(void *priv, uint8_t *frame,
     pkt.stream_index  = ctx->video_st->index;
 
     if (ctx->wallclock) {
-        put_wallclock_packet(ctx, pkt.pts, ctx->queue_size);
+        put_wallclock_packet(ctx, pkt.pts);
     }
 
     if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
