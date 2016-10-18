@@ -381,7 +381,7 @@ static int bmd_read_packet(AVFormatContext *s, AVPacket *pkt)
     int ret;
 
     if (av_gettime() - ctx->last_time > ctx->timeout * 1000000) {
-        ret = AVERROR_EOF;
+        ret = AVERROR_STREAM_NOT_FOUND;
         av_log(s, AV_LOG_ERROR, "didn't receive video input for %" PRId64 " seconds.\n", ctx->timeout);
     }
     else {
