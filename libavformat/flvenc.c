@@ -550,7 +550,6 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
             const uint32_t first_timewrap = 457200; // January 6, 1970, 7:00 UTC
             const uint32_t three_weeks = 3 * 7 * 24 * 60 * 60;
             struct timeval tv;
-            time_t current_timestamp;
             int64_t millis;
             uint32_t stream_hash;
             time_t prev_wrap_timestamp;
@@ -560,7 +559,6 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
             stream_hash = get_stream_hash(s->filename) % 18;
 
             gettimeofday(&tv, NULL);
-            current_timestamp = tv.tv_sec;
             millis = 1000 * tv.tv_sec + tv.tv_usec / 1000;
 
             prev_wrap_timestamp = first_timewrap + ((tv.tv_sec - first_timewrap) / three_weeks * three_weeks) + stream_hash * 10 * 60;
