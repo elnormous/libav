@@ -467,71 +467,6 @@ static int flv_write_trailer(AVFormatContext *s)
     return 0;
 }
 
-static unsigned short days[4][12] =
-{
-    {   0,  31,  60,  91, 121, 152, 182, 213, 244, 274, 305, 335},
-    { 366, 397, 425, 456, 486, 517, 547, 578, 609, 639, 670, 700},
-    { 731, 762, 790, 821, 851, 882, 912, 943, 974,1004,1035,1065},
-    {1096,1127,1155,1186,1216,1247,1277,1308,1339,1369,1400,1430},
-};
-
-typedef struct
-{
-    uint32_t second; // 0-59
-    uint32_t minute; // 0-59
-    uint32_t hour;   // 0-59
-    uint32_t day;    // 1-31
-    uint32_t month;  // 1-12
-    uint32_t year;   // 0-99 (representing 2000-2099)
-
-    uint32_t absolute_day;
-    uint32_t day_of_week;
-}
-date_time_t;
-
-static uint32_t date_time_to_epoch(const date_time_t* date_time)
-{
-    uint32_t second = date_time->second;  // 0-59
-    uint32_t minute = date_time->minute;  // 0-59
-    uint32_t hour   = date_time->hour;    // 0-23
-    uint32_t day    = date_time->day - 1;   // 0-30
-    uint32_t month  = date_time->month - 1; // 0-11
-    uint32_t year   = date_time->year;    // 0-99
-    return (((year / 4 * (365 * 4 + 1) + days[year % 4][month] + day) * 24 + hour) * 60 + minute) * 60 + second;
-}
-
-static void epoch_to_date_time(date_time_t* date_time, uint32_t epoch)
-{
-    unsigned int years;
-    unsigned int year;
-    unsigned int month;
-
-    date_time->second = epoch % 60; epoch /= 60;
-    date_time->minute = epoch % 60; epoch /= 60;
-    date_time->hour   = epoch % 24; epoch /= 24;
-
-    date_time->absolute_day = epoch;
-    date_time->day_of_week = (date_time->absolute_day + 4) % 7;
-
-    years = epoch / (365 * 4 + 1) * 4; epoch %= 365 * 4 + 1;
-
-    for (year = 3; year > 0; year--)
-    {
-        if (epoch >= days[year][0])
-            break;
-    }
-    
-    for (month = 11; month > 0; month--)
-    {
-        if (epoch >= days[year][month])
-            break;
-    }
-
-    date_time->year  = years + year;
-    date_time->month = month + 1;
-    date_time->day   = epoch - days[year][month] + 1;
-}
-
 static const uint32_t FNV_OFFSET_32 = 2166136261U;
 static const uint32_t FNV_PRIME_32 = 16777619;
 static uint32_t hash(const char* str)
@@ -626,80 +561,33 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
     {
         if (flv->pts_mod)
         {
+            const uint32_t first_timewrap = 457200; // January 6, 1970, 7:00 UTC
+            const uint32_t three_weeks = 3 * 7 * 24 * 60 * 60;
             struct timeval tv;
-            struct tm* timeinfo;
             time_t current_timestamp;
             int64_t millis;
-            int64_t next_wrap_after;
-            int64_t next_wrap;
-            int64_t previous_wrap;
+            uint32_t stream_hash;
+            time_t prev_wrap_timestamp;
             time_t next_wrap_timestamp;
-            time_t previous_wrap_timestamp;
-            date_time_t wrap_time;
-            int64_t stream_hash;
-            date_time_t tuesday;
-            time_t next_tuesday_timestamp;
-            time_t previous_tuesday_timestamp;
+            struct tm* timeinfo;
 
             stream_hash = get_stream_hash(s->filename) % 18;
 
             gettimeofday(&tv, NULL);
+            current_timestamp = tv.tv_sec;
             millis = 1000 * tv.tv_sec + tv.tv_usec / 1000;
 
-            current_timestamp = tv.tv_sec;
+            prev_wrap_timestamp = first_timewrap + ((tv.tv_sec - first_timewrap) / three_weeks * three_weeks) + stream_hash * 10 * 60;
+            next_wrap_timestamp = prev_wrap_timestamp + three_weeks;
 
-            next_wrap_after = 0x7FFFFFFF - (millis % 0x7FFFFFFF);
-            next_wrap = current_timestamp * 1000 + next_wrap_after;
+            timeinfo = localtime(&prev_wrap_timestamp);
+            av_log(s, AV_LOG_INFO, "Previous stop on: %zu, %s", prev_wrap_timestamp, asctime(timeinfo));
 
-            while (1)
-            {
-                next_wrap_timestamp = next_wrap / 1000;
+            timeinfo = localtime(&next_wrap_timestamp);
+            av_log(s, AV_LOG_INFO, "Next stop on: %zu, %s", next_wrap_timestamp, asctime(timeinfo));
 
-                epoch_to_date_time(&wrap_time, (uint32_t)next_wrap_timestamp);
-
-                tuesday.year = wrap_time.year;
-                tuesday.month = wrap_time.month;
-                tuesday.day = wrap_time.day + 2 - wrap_time.day_of_week;
-                tuesday.hour = 7 + stream_hash / 6;
-                tuesday.minute = (stream_hash % 6) * 10;
-                tuesday.second = 0;
-
-                next_tuesday_timestamp = date_time_to_epoch(&tuesday);
-
-                while (next_tuesday_timestamp > next_wrap_timestamp)
-                {
-                    next_tuesday_timestamp -= 7 * 24 * 60 * 60;
-                }
-
-                if (next_tuesday_timestamp > current_timestamp)
-                {
-                    break;
-                }
-
-                next_wrap += 0x7FFFFFFF;
-            }
-
-            previous_wrap = next_wrap - 0x7FFFFFFF;
-            previous_wrap_timestamp = previous_wrap / 1000;
-            epoch_to_date_time(&wrap_time, (uint32_t)previous_wrap_timestamp);
-            tuesday.year = wrap_time.year;
-            tuesday.month = wrap_time.month;
-            tuesday.day = wrap_time.day + 2 - wrap_time.day_of_week;
-            previous_tuesday_timestamp = date_time_to_epoch(&tuesday);
-
-            while (previous_tuesday_timestamp > previous_wrap_timestamp)
-            {
-                previous_tuesday_timestamp -= 7 * 24 * 60 * 60;
-            }
-
-            timeinfo = localtime(&previous_tuesday_timestamp);
-            av_log(s, AV_LOG_INFO, "Previous stop on: %"PRId64", %s", (int64_t)previous_tuesday_timestamp, asctime(timeinfo));
-
-            timeinfo = localtime(&next_tuesday_timestamp);
-            av_log(s, AV_LOG_INFO, "Next stop on: %"PRId64", %s", (int64_t)next_tuesday_timestamp, asctime(timeinfo));
-
-            flv->delay = (millis - (int64_t)previous_tuesday_timestamp * 1000) % 0x7FFFFFFF;
-            flv->stop_time = next_tuesday_timestamp;
+            flv->delay = (millis - (int64_t)prev_wrap_timestamp * 1000) % 0x7FFFFFFF;
+            flv->stop_time = next_wrap_timestamp;
         }
         else
         {
