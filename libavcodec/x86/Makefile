@@ -58,7 +58,6 @@ OBJS-$(CONFIG_VP9_DECODER)             += x86/vp9dsp_init.o
 
 # GCC inline assembly optimizations
 # subsystems
-MMX-OBJS-$(CONFIG_AUDIODSP)            += x86/audiodsp_mmx.o
 MMX-OBJS-$(CONFIG_FDCTDSP)             += x86/fdct.o
 MMX-OBJS-$(CONFIG_HPELDSP)             += x86/fpel_mmx.o                \
                                           x86/hpeldsp_mmx.o
@@ -72,7 +71,8 @@ MMX-OBJS-$(CONFIG_MPEG4_DECODER)       += x86/xvididct_mmx.o            \
                                           x86/xvididct_sse2.o
 
 # subsystems
-YASM-OBJS-$(CONFIG_AC3DSP)             += x86/ac3dsp.o
+YASM-OBJS-$(CONFIG_AC3DSP)             += x86/ac3dsp.o                  \
+                                          x86/ac3dsp_downmix.o
 YASM-OBJS-$(CONFIG_AUDIODSP)           += x86/audiodsp.o
 YASM-OBJS-$(CONFIG_BSWAPDSP)           += x86/bswapdsp.o
 YASM-OBJS-$(CONFIG_DCT)                += x86/dct32.o
@@ -115,9 +115,10 @@ YASM-OBJS-$(CONFIG_AAC_DECODER)        += x86/sbrdsp.o
 YASM-OBJS-$(CONFIG_APE_DECODER)        += x86/apedsp.o
 YASM-OBJS-$(CONFIG_DCA_DECODER)        += x86/dcadsp.o
 YASM-OBJS-$(CONFIG_DNXHD_ENCODER)      += x86/dnxhdenc.o
-YASM-OBJS-$(CONFIG_HEVC_DECODER)       += x86/hevc_deblock.o            \
-                                          x86/hevc_mc.o                 \
-                                          x86/hevc_idct.o
+YASM-OBJS-$(CONFIG_HEVC_DECODER)       += x86/hevc_add_res.o            \
+                                          x86/hevc_deblock.o            \
+                                          x86/hevc_idct.o               \
+                                          x86/hevc_mc.o
 YASM-OBJS-$(CONFIG_PNG_DECODER)        += x86/pngdsp.o
 YASM-OBJS-$(CONFIG_PRORES_DECODER)     += x86/proresdsp.o
 YASM-OBJS-$(CONFIG_RV40_DECODER)       += x86/rv40dsp.o
@@ -125,4 +126,5 @@ YASM-OBJS-$(CONFIG_V210_ENCODER)       += x86/v210enc.o
 YASM-OBJS-$(CONFIG_VORBIS_DECODER)     += x86/vorbisdsp.o
 YASM-OBJS-$(CONFIG_VP3_DECODER)        += x86/hpeldsp_vp3.o
 YASM-OBJS-$(CONFIG_VP6_DECODER)        += x86/vp6dsp.o
-YASM-OBJS-$(CONFIG_VP9_DECODER)        += x86/vp9mc.o
+YASM-OBJS-$(CONFIG_VP9_DECODER)        += x86/vp9mc.o                   \
+                                          x86/vp9lpf.o

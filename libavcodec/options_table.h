@@ -26,7 +26,6 @@
 #include "libavutil/opt.h"
 #include "avcodec.h"
 #include "version.h"
-#include "config.h"
 
 #define OFFSET(x) offsetof(AVCodecContext,x)
 #define DEFAULT 0 //should be NAN but it does not work as it is not a constant in glibc as required by ANSI/ISO C
@@ -372,6 +371,7 @@ static const AVOption avcodec_options[] = {
 {"dts_96_24", NULL, 0, AV_OPT_TYPE_CONST, {.i64 = FF_PROFILE_DTS_96_24 }, INT_MIN, INT_MAX, A|E, "profile"},
 {"dts_hd_hra", NULL, 0, AV_OPT_TYPE_CONST, {.i64 = FF_PROFILE_DTS_HD_HRA }, INT_MIN, INT_MAX, A|E, "profile"},
 {"dts_hd_ma", NULL, 0, AV_OPT_TYPE_CONST, {.i64 = FF_PROFILE_DTS_HD_MA }, INT_MIN, INT_MAX, A|E, "profile"},
+{"main10", NULL, 0, AV_OPT_TYPE_CONST, {.i64 = FF_PROFILE_HEVC_MAIN_10 }, INT_MIN, INT_MAX, A|E, "profile"},
 {"level", NULL, OFFSET(level), AV_OPT_TYPE_INT, {.i64 = FF_LEVEL_UNKNOWN }, INT_MIN, INT_MAX, V|A|E, "level"},
 {"unknown", NULL, 0, AV_OPT_TYPE_CONST, {.i64 = FF_LEVEL_UNKNOWN }, INT_MIN, INT_MAX, V|A|E, "level"},
 #if FF_API_PRIVATE_OPT
@@ -438,6 +438,7 @@ static const AVOption avcodec_options[] = {
 {"smpte428",    "SMPTE 428-1", 0, AV_OPT_TYPE_CONST, {.i64 = AVCOL_PRI_SMPTE428 },   INT_MIN, INT_MAX, V|E|D, "color_primaries_type"},
 {"smpte431",    "SMPTE 431-2", 0, AV_OPT_TYPE_CONST, {.i64 = AVCOL_PRI_SMPTE431 },    INT_MIN, INT_MAX, V|E|D, "color_primaries_type"},
 {"smpte432",    "SMPTE 422-1", 0, AV_OPT_TYPE_CONST, {.i64 = AVCOL_PRI_SMPTE432 },    INT_MIN, INT_MAX, V|E|D, "color_primaries_type"},
+{"jedec-p22",    "JEDEC P22",  0, AV_OPT_TYPE_CONST, {.i64 = AVCOL_PRI_JEDEC_P22 },   INT_MIN, INT_MAX, V|E|D, "color_primaries_type"},
 {"unspecified", "Unspecified", 0, AV_OPT_TYPE_CONST, {.i64 = AVCOL_PRI_UNSPECIFIED }, INT_MIN, INT_MAX, V|E|D, "color_primaries_type"},
 {"smptest428_1", "SMPTE 428-1", 0, AV_OPT_TYPE_CONST, {.i64 = AVCOL_PRI_SMPTE428 },   INT_MIN, INT_MAX, V|E|D, "color_primaries_type"},
 {"color_trc", "color transfer characteristics", OFFSET(color_trc), AV_OPT_TYPE_INT, {.i64 = AVCOL_TRC_UNSPECIFIED }, 1, AVCOL_TRC_NB-1, V|E|D, "color_trc_type"},
@@ -476,11 +477,12 @@ static const AVOption avcodec_options[] = {
 {"bt470bg",     "BT.470 BG",   0, AV_OPT_TYPE_CONST, {.i64 = AVCOL_SPC_BT470BG },     INT_MIN, INT_MAX, V|E|D, "colorspace_type"},
 {"smpte170m",   "SMPTE 170 M", 0, AV_OPT_TYPE_CONST, {.i64 = AVCOL_SPC_SMPTE170M },   INT_MIN, INT_MAX, V|E|D, "colorspace_type"},
 {"smpte240m",   "SMPTE 240 M", 0, AV_OPT_TYPE_CONST, {.i64 = AVCOL_SPC_SMPTE240M },   INT_MIN, INT_MAX, V|E|D, "colorspace_type"},
-{"ycocg",       "YCOCG",       0, AV_OPT_TYPE_CONST, {.i64 = AVCOL_SPC_YCOCG },       INT_MIN, INT_MAX, V|E|D, "colorspace_type"},
+{"ycgco",       "YCGCO",       0, AV_OPT_TYPE_CONST, {.i64 = AVCOL_SPC_YCGCO },       INT_MIN, INT_MAX, V|E|D, "colorspace_type"},
 {"bt2020nc",    "BT.2020 NCL", 0, AV_OPT_TYPE_CONST, {.i64 = AVCOL_SPC_BT2020_NCL },  INT_MIN, INT_MAX, V|E|D, "colorspace_type"},
 {"bt2020c",     "BT.2020 CL",  0, AV_OPT_TYPE_CONST, {.i64 = AVCOL_SPC_BT2020_CL },   INT_MIN, INT_MAX, V|E|D, "colorspace_type"},
 {"smpte2085",   "SMPTE 2085",  0, AV_OPT_TYPE_CONST, {.i64 = AVCOL_SPC_SMPTE2085 },   INT_MIN, INT_MAX, V|E|D, "colorspace_type"},
 {"unspecified", "Unspecified", 0, AV_OPT_TYPE_CONST, {.i64 = AVCOL_SPC_UNSPECIFIED }, INT_MIN, INT_MAX, V|E|D, "colorspace_type"},
+{"ycocg",       "YCGCO",       0, AV_OPT_TYPE_CONST, {.i64 = AVCOL_SPC_YCGCO },       INT_MIN, INT_MAX, V|E|D, "colorspace_type"},
 {"bt2020_ncl",  "BT.2020 NCL", 0, AV_OPT_TYPE_CONST, {.i64 = AVCOL_SPC_BT2020_NCL },  INT_MIN, INT_MAX, V|E|D, "colorspace_type"},
 {"bt2020_cl",   "BT.2020 CL",  0, AV_OPT_TYPE_CONST, {.i64 = AVCOL_SPC_BT2020_CL },   INT_MIN, INT_MAX, V|E|D, "colorspace_type"},
 {"color_range", "color range", OFFSET(color_range), AV_OPT_TYPE_INT, {.i64 = AVCOL_RANGE_UNSPECIFIED }, 0, AVCOL_RANGE_NB-1, V|E|D, "color_range_type"},

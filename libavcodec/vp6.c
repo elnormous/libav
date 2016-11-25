@@ -514,7 +514,7 @@ static void vp6_parse_coeff(VP56Context *s)
     }
 }
 
-static int vp6_block_variance(uint8_t *src, int stride)
+static int vp6_block_variance(uint8_t *src, ptrdiff_t stride)
 {
     int sum = 0, square_sum = 0;
     int y, x;
@@ -529,7 +529,7 @@ static int vp6_block_variance(uint8_t *src, int stride)
     return (16*square_sum - sum*sum) >> 8;
 }
 
-static void vp6_filter_hv4(uint8_t *dst, uint8_t *src, int stride,
+static void vp6_filter_hv4(uint8_t *dst, uint8_t *src, ptrdiff_t stride,
                            int delta, const int16_t *weights)
 {
     int x, y;
@@ -547,7 +547,7 @@ static void vp6_filter_hv4(uint8_t *dst, uint8_t *src, int stride,
 }
 
 static void vp6_filter_diag2(VP56Context *s, uint8_t *dst, uint8_t *src,
-                             int stride, int h_weight, int v_weight)
+                             ptrdiff_t stride, int h_weight, int v_weight)
 {
     uint8_t *tmp = s->edge_emu_buffer+16;
     s->h264chroma.put_h264_chroma_pixels_tab[0](tmp, src, stride, 9, h_weight, 0);
@@ -555,7 +555,7 @@ static void vp6_filter_diag2(VP56Context *s, uint8_t *dst, uint8_t *src,
 }
 
 static void vp6_filter(VP56Context *s, uint8_t *dst, uint8_t *src,
-                       int offset1, int offset2, int stride,
+                       int offset1, int offset2, ptrdiff_t stride,
                        VP56mv mv, int mask, int select, int luma)
 {
     int filter4 = 0;
@@ -612,6 +612,7 @@ static av_cold int vp6_decode_init(AVCodecContext *avctx)
     if ((ret = ff_vp56_init(avctx, avctx->codec->id == AV_CODEC_ID_VP6,
                             avctx->codec->id == AV_CODEC_ID_VP6A)) < 0)
         return ret;
+    ff_vp6dsp_init(&s->vp56dsp);
 
     s->vp56_coord_div = vp6_coord_div;
     s->parse_vector_adjustment = vp6_parse_vector_adjustment;

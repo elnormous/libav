@@ -27,8 +27,11 @@
 #define OFFSET(x) offsetof(NVENCContext, x)
 #define VE AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM
 static const AVOption options[] = {
-    { "preset",   "Set the encoding preset",              OFFSET(preset),      AV_OPT_TYPE_INT,    { .i64 = PRESET_HQ }, PRESET_DEFAULT, PRESET_LOSSLESS_HP, VE, "preset" },
+    { "preset",   "Set the encoding preset",              OFFSET(preset),      AV_OPT_TYPE_INT,    { .i64 = PRESET_MEDIUM }, PRESET_DEFAULT, PRESET_LOSSLESS_HP, VE, "preset" },
     { "default",    "",                                   0,                   AV_OPT_TYPE_CONST,  { .i64 = PRESET_DEFAULT }, 0, 0, VE, "preset" },
+    { "slow",       "hq 2 passes",                        0,                   AV_OPT_TYPE_CONST,  { .i64 = PRESET_SLOW }, 0, 0, VE, "preset" },
+    { "medium",     "hq 1 pass",                          0,                   AV_OPT_TYPE_CONST,  { .i64 = PRESET_MEDIUM }, 0, 0, VE, "preset" },
+    { "fast",       "hp 1 pass",                          0,                   AV_OPT_TYPE_CONST,  { .i64 = PRESET_FAST }, 0, 0, VE, "preset" },
     { "hp",         "",                                   0,                   AV_OPT_TYPE_CONST,  { .i64 = PRESET_HP }, 0, 0, VE, "preset" },
     { "hq",         "",                                   0,                   AV_OPT_TYPE_CONST,  { .i64 = PRESET_HQ }, 0, 0, VE, "preset" },
     { "bd",         "",                                   0,                   AV_OPT_TYPE_CONST,  { .i64 = PRESET_BD }, 0, 0, VE, "preset" },
@@ -37,8 +40,12 @@ static const AVOption options[] = {
     { "llhp",       "low latency hp",                     0,                   AV_OPT_TYPE_CONST,  { .i64 = PRESET_LOW_LATENCY_HP }, 0, 0, VE, "preset" },
     { "lossless",   "lossless",                           0,                   AV_OPT_TYPE_CONST,  { .i64 = PRESET_LOSSLESS_DEFAULT }, 0, 0, VE, "preset" },
     { "losslesshp", "lossless hp",                        0,                   AV_OPT_TYPE_CONST,  { .i64 = PRESET_LOSSLESS_HP }, 0, 0, VE, "preset" },
-    { "profile", "Set the encoding profile",             OFFSET(profile),      AV_OPT_TYPE_INT,    { .i64 = FF_PROFILE_HEVC_MAIN }, FF_PROFILE_HEVC_MAIN, FF_PROFILE_HEVC_MAIN, VE, "profile" },
-    { "high",    "",                                     0,                    AV_OPT_TYPE_CONST,  { .i64 = FF_PROFILE_HEVC_MAIN }, 0, 0, VE, "profile" },
+    { "profile", "Set the encoding profile",             OFFSET(profile),      AV_OPT_TYPE_INT,    { .i64 = NV_ENC_HEVC_PROFILE_MAIN }, NV_ENC_HEVC_PROFILE_MAIN, FF_PROFILE_HEVC_REXT, VE, "profile" },
+    { "main",    "",                                     0,                    AV_OPT_TYPE_CONST,  { .i64 = NV_ENC_HEVC_PROFILE_MAIN }, 0, 0, VE, "profile" },
+#if NVENCAPI_MAJOR_VERSION >= 7
+    { "main10",  "",                                     0,                    AV_OPT_TYPE_CONST,  { .i64 = NV_ENC_HEVC_PROFILE_MAIN_10 }, 0, 0, VE, "profile" },
+    { "rext",   "",                                      0,                    AV_OPT_TYPE_CONST,  { .i64 = NV_ENC_HEVC_PROFILE_REXT }, 0, 0, VE, "profile" },
+#endif /* NVENCAPI_MAJOR_VERSION >= 7 */
     { "level",   "Set the encoding level restriction",   OFFSET(level),        AV_OPT_TYPE_INT,    { .i64 = NV_ENC_LEVEL_AUTOSELECT }, NV_ENC_LEVEL_AUTOSELECT, NV_ENC_LEVEL_HEVC_62, VE, "level" },
     { "1.0",     "",                                     0,                    AV_OPT_TYPE_CONST,  { .i64 = NV_ENC_LEVEL_HEVC_1 },  0, 0, VE,  "level" },
     { "2.0",     "",                                     0,                    AV_OPT_TYPE_CONST,  { .i64 = NV_ENC_LEVEL_HEVC_2 },  0, 0, VE,  "level" },
@@ -70,6 +77,16 @@ static const AVOption options[] = {
     { "list",     "List the available devices",           0,                   AV_OPT_TYPE_CONST,  { .i64 = LIST_DEVICES },         0, 0, VE, "device" },
     { "async_depth", "Delay frame output by the given amount of frames", OFFSET(async_depth), AV_OPT_TYPE_INT, { .i64 = INT_MAX }, 0, INT_MAX, VE },
     { "delay",       "Delay frame output by the given amount of frames", OFFSET(async_depth), AV_OPT_TYPE_INT, { .i64 = INT_MAX }, 0, INT_MAX, VE },
+#if NVENCAPI_MAJOR_VERSION >= 7
+    { "rc-lookahead", "Number of frames to look ahead for rate-control", OFFSET(rc_lookahead), AV_OPT_TYPE_INT, { .i64 = -1 }, -1, INT_MAX, VE },
+    { "no-scenecut", "When lookahead is enabled, set this to 1 to disable adaptive I-frame insertion at scene cuts", OFFSET(no_scenecut), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, VE },
+    { "spatial_aq", "set to 1 to enable Spatial AQ", OFFSET(aq), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, VE },
+    { "zerolatency", "Set 1 to indicate zero latency operation (no reordering delay)", OFFSET(zerolatency), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, VE },
+    { "nonref_p", "Set this to 1 to enable automatic insertion of non-reference P-frames", OFFSET(nonref_p), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, VE },
+    { "strict_gop", "Set 1 to minimize GOP-to-GOP rate fluctuations", OFFSET(strict_gop), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 1, VE },
+    { "aq-strength", "When Spatial AQ is enabled, this field is used to specify AQ strength. AQ strength scale is from 1 (low) - 15 (aggressive)", OFFSET(aq_strength), AV_OPT_TYPE_INT, { .i64 = 8 }, 1, 15, VE },
+    { "cq", "Set target quality level (0 to 51, 0 means automatic) for constant quality mode in VBR rate control", OFFSET(quality), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, 51, VE },
+#endif /* NVENCAPI_MAJOR_VERSION >= 7 */
     { NULL }
 };
 

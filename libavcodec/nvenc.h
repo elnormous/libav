@@ -91,6 +91,9 @@ typedef struct NVENCLibraryContext
 
 enum {
     PRESET_DEFAULT,
+    PRESET_SLOW,
+    PRESET_MEDIUM,
+    PRESET_FAST,
     PRESET_HP,
     PRESET_HQ,
     PRESET_BD ,
@@ -110,8 +113,16 @@ enum {
 };
 
 enum {
+    NV_ENC_HEVC_PROFILE_MAIN,
+    NV_ENC_HEVC_PROFILE_MAIN_10,
+    NV_ENC_HEVC_PROFILE_REXT,
+};
+
+enum {
     NVENC_LOWLATENCY = 1,
-    NVENC_LOSSLESS,
+    NVENC_LOSSLESS   = 2,
+    NVENC_ONE_PASS   = 4,
+    NVENC_TWO_PASSES = 8,
 };
 
 enum {
@@ -160,6 +171,16 @@ typedef struct NVENCContext {
     int device;
     int flags;
     int async_depth;
+    int rc_lookahead;
+    int aq;
+    int no_scenecut;
+    int b_adapt;
+    int temporal_aq;
+    int zerolatency;
+    int nonref_p;
+    int strict_gop;
+    int aq_strength;
+    int quality;
 } NVENCContext;
 
 int ff_nvenc_encode_init(AVCodecContext *avctx);

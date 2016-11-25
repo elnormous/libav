@@ -29,10 +29,9 @@
 
 #if HAVE_YASM
 
-#define fpel_func(avg, sz, opt)                                             \
-void ff_vp9_ ## avg ## sz ## _ ## opt(uint8_t *dst, const uint8_t *src,     \
-                                      ptrdiff_t dst_stride,                 \
-                                      ptrdiff_t src_stride,                 \
+#define fpel_func(avg, sz, opt)                                                 \
+void ff_vp9_ ## avg ## sz ## _ ## opt(uint8_t *dst, ptrdiff_t dst_stride,       \
+                                      const uint8_t *src, ptrdiff_t src_stride, \
                                       int h, int mx, int my)
 
 fpel_func(put,  4, mmx);
@@ -54,8 +53,8 @@ fpel_func(avg, 64, avx2);
 #define mc_func(avg, sz, dir, opt, type, f_sz)                                  \
 void                                                                            \
 ff_vp9_ ## avg ## _8tap_1d_ ## dir ## _ ## sz ## _ ## opt(uint8_t *dst,         \
-                                                          const uint8_t *src,   \
                                                           ptrdiff_t dst_stride, \
+                                                          const uint8_t *src,   \
                                                           ptrdiff_t src_stride, \
                                                           int h,                \
                                                           const type (*filter)[f_sz])
@@ -81,40 +80,41 @@ mc_funcs(32, avx2,  int8_t,  32);
 #define mc_rep_func(avg, sz, hsz, dir, opt, type, f_sz)                     \
 static av_always_inline void                                                \
 ff_vp9_ ## avg ## _8tap_1d_ ## dir ## _ ## sz ## _ ## opt(uint8_t *dst,     \
-                                                      const uint8_t *src,   \
                                                       ptrdiff_t dst_stride, \
+                                                      const uint8_t *src,   \
                                                       ptrdiff_t src_stride, \
                                                       int h,                \
                                                       const type (*filter)[f_sz]) \
 {                                                                           \
-    ff_vp9_ ## avg ## _8tap_1d_ ## dir ## _ ## hsz ## _ ## opt(dst, src,    \
+    ff_vp9_ ## avg ## _8tap_1d_ ## dir ## _ ## hsz ## _ ## opt(dst,         \
                                                            dst_stride,      \
+                                                           src,             \
                                                            src_stride,      \
                                                            h,               \
                                                            filter);         \
     ff_vp9_ ## avg ## _8tap_1d_ ## dir ## _ ## hsz ## _ ## opt(dst + hsz,   \
-                                                           src + hsz,       \
                                                            dst_stride,      \
+                                                           src + hsz,       \
                                                            src_stride,      \
                                                            h, filter);      \
 }
 
 #define mc_rep_funcs(sz, hsz, opt, type, f_sz)     \
-    mc_rep_func(put, sz, hsz, h, opt, type, f_sz); \
-    mc_rep_func(avg, sz, hsz, h, opt, type, f_sz); \
-    mc_rep_func(put, sz, hsz, v, opt, type, f_sz); \
+    mc_rep_func(put, sz, hsz, h, opt, type, f_sz)  \
+    mc_rep_func(avg, sz, hsz, h, opt, type, f_sz)  \
+    mc_rep_func(put, sz, hsz, v, opt, type, f_sz)  \
     mc_rep_func(avg, sz, hsz, v, opt, type, f_sz)
 
-mc_rep_funcs(16, 8,  sse2,  int16_t,  8);
+mc_rep_funcs(16, 8,  sse2,  int16_t,  8)
 #if ARCH_X86_32
-mc_rep_funcs(16, 8,  ssse3, int8_t,  32);
+mc_rep_funcs(16, 8,  ssse3, int8_t,  32)
 #endif
-mc_rep_funcs(32, 16, sse2,  int16_t,  8);
-mc_rep_funcs(32, 16, ssse3, int8_t,  32);
-mc_rep_funcs(64, 32, sse2,  int16_t,  8);
-mc_rep_funcs(64, 32, ssse3, int8_t,  32);
+mc_rep_funcs(32, 16, sse2,  int16_t,  8)
+mc_rep_funcs(32, 16, ssse3, int8_t,  32)
+mc_rep_funcs(64, 32, sse2,  int16_t,  8)
+mc_rep_funcs(64, 32, ssse3, int8_t,  32)
 #if ARCH_X86_64 && HAVE_AVX2_EXTERNAL
-mc_rep_funcs(64, 32, avx2,  int8_t,  32);
+mc_rep_funcs(64, 32, avx2,  int8_t,  32)
 #endif
 
 #undef mc_rep_funcs
@@ -126,19 +126,18 @@ extern const int16_t ff_filters_sse2[3][15][8][8];
 #define filter_8tap_2d_fn(op, sz, f, f_opt, fname, align, opt)                   \
 static void                                                                      \
 op ## _8tap_ ## fname ## _ ## sz ## hv_ ## opt(uint8_t *dst,                     \
-                                               const uint8_t *src,               \
                                                ptrdiff_t dst_stride,             \
+                                               const uint8_t *src,               \
                                                ptrdiff_t src_stride,             \
                                                int h, int mx, int my)            \
 {                                                                                \
     LOCAL_ALIGNED_ ## align(uint8_t, temp, [71 * 64]);                           \
-    ff_vp9_put_8tap_1d_h_ ## sz ## _ ## opt(temp, src - 3 * src_stride,          \
-                                            64, src_stride,                      \
-                                            h + 7,                               \
+    ff_vp9_put_8tap_1d_h_ ## sz ## _ ## opt(temp, 64,                            \
+                                            src - 3 * src_stride,                \
+                                            src_stride, h + 7,                   \
                                             ff_filters_ ## f_opt[f][mx - 1]);    \
-    ff_vp9_ ## op ## _8tap_1d_v_ ## sz ## _ ## opt(dst, temp + 3 * 64,           \
-                                                   dst_stride, 64,               \
-                                                   h,                            \
+    ff_vp9_ ## op ## _8tap_1d_v_ ## sz ## _ ## opt(dst, dst_stride,              \
+                                                   temp + 3 * 64, 64, h,         \
                                                    ff_filters_ ## f_opt[f][my - 1]); \
 }
 
@@ -173,14 +172,15 @@ filters_8tap_2d_fn(avg, 32, 32, avx2, ssse3)
 #define filter_8tap_1d_fn(op, sz, f, f_opt, fname, dir, dvar, opt)         \
 static void                                                                \
 op ## _8tap_ ## fname ## _ ## sz ## dir ## _ ## opt(uint8_t *dst,          \
-                                                    const uint8_t *src,    \
                                                     ptrdiff_t dst_stride,  \
+                                                    const uint8_t *src,    \
                                                     ptrdiff_t src_stride,  \
                                                     int h, int mx,         \
                                                     int my)                \
 {                                                                          \
-    ff_vp9_ ## op ## _8tap_1d_ ## dir ## _ ## sz ## _ ## opt(dst, src,     \
+    ff_vp9_ ## op ## _8tap_1d_ ## dir ## _ ## sz ## _ ## opt(dst,          \
                                                              dst_stride,   \
+                                                             src,          \
                                                              src_stride, h,\
                                                              ff_filters_ ## f_opt[f][dvar - 1]); \
 }
@@ -216,6 +216,30 @@ filters_8tap_1d_fn2(avg, 32, avx2, ssse3)
 #undef filters_8tap_1d_fn2
 #undef filters_8tap_1d_fn3
 #undef filter_8tap_1d_fn
+
+#define lpf_funcs(size1, size2, opt) \
+void ff_vp9_loop_filter_v_##size1##_##size2##_##opt(uint8_t *dst, ptrdiff_t stride, \
+                                                    int E, int I, int H); \
+void ff_vp9_loop_filter_h_##size1##_##size2##_##opt(uint8_t *dst, ptrdiff_t stride, \
+                                                    int E, int I, int H)
+
+lpf_funcs(16, 16, sse2);
+lpf_funcs(16, 16, ssse3);
+lpf_funcs(16, 16, avx);
+lpf_funcs(44, 16, sse2);
+lpf_funcs(44, 16, ssse3);
+lpf_funcs(44, 16, avx);
+lpf_funcs(84, 16, sse2);
+lpf_funcs(84, 16, ssse3);
+lpf_funcs(84, 16, avx);
+lpf_funcs(48, 16, sse2);
+lpf_funcs(48, 16, ssse3);
+lpf_funcs(48, 16, avx);
+lpf_funcs(88, 16, sse2);
+lpf_funcs(88, 16, ssse3);
+lpf_funcs(88, 16, avx);
+
+#undef lpf_funcs
 
 #endif /* HAVE_YASM */
 
@@ -254,6 +278,19 @@ av_cold void ff_vp9dsp_init_x86(VP9DSPContext *dsp)
     init_subpel3_8to64(idx, type, opt); \
     init_subpel2(4, idx,  4, type, opt)
 
+#define init_lpf(opt) do { \
+    dsp->loop_filter_16[0] = ff_vp9_loop_filter_h_16_16_##opt; \
+    dsp->loop_filter_16[1] = ff_vp9_loop_filter_v_16_16_##opt; \
+    dsp->loop_filter_mix2[0][0][0] = ff_vp9_loop_filter_h_44_16_##opt; \
+    dsp->loop_filter_mix2[0][0][1] = ff_vp9_loop_filter_v_44_16_##opt; \
+    dsp->loop_filter_mix2[0][1][0] = ff_vp9_loop_filter_h_48_16_##opt; \
+    dsp->loop_filter_mix2[0][1][1] = ff_vp9_loop_filter_v_48_16_##opt; \
+    dsp->loop_filter_mix2[1][0][0] = ff_vp9_loop_filter_h_84_16_##opt; \
+    dsp->loop_filter_mix2[1][0][1] = ff_vp9_loop_filter_v_84_16_##opt; \
+    dsp->loop_filter_mix2[1][1][0] = ff_vp9_loop_filter_h_88_16_##opt; \
+    dsp->loop_filter_mix2[1][1][1] = ff_vp9_loop_filter_v_88_16_##opt; \
+} while (0)
+
     if (EXTERNAL_MMX(cpu_flags)) {
         init_fpel(4, 0,  4, put, mmx);
         init_fpel(3, 0,  8, put, mmx);
@@ -278,16 +315,19 @@ av_cold void ff_vp9dsp_init_x86(VP9DSPContext *dsp)
         init_fpel(2, 1, 16, avg, sse2);
         init_fpel(1, 1, 32, avg, sse2);
         init_fpel(0, 1, 64, avg, sse2);
+        init_lpf(sse2);
     }
 
     if (EXTERNAL_SSSE3(cpu_flags)) {
         init_subpel3(0, put, ssse3);
         init_subpel3(1, avg, ssse3);
+        init_lpf(ssse3);
     }
 
     if (EXTERNAL_AVX(cpu_flags)) {
         init_fpel(1, 0, 32, put, avx);
         init_fpel(0, 0, 64, put, avx);
+        init_lpf(avx);
     }
 
     if (EXTERNAL_AVX2(cpu_flags)) {

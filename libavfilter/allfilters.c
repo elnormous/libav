@@ -57,6 +57,7 @@ void avfilter_register_all(void)
     REGISTER_FILTER(CHANNELMAP,     channelmap,     af);
     REGISTER_FILTER(CHANNELSPLIT,   channelsplit,   af);
     REGISTER_FILTER(COMPAND,        compand,        af);
+    REGISTER_FILTER(HDCD,           hdcd,           af);
     REGISTER_FILTER(JOIN,           join,           af);
     REGISTER_FILTER(RESAMPLE,       resample,       af);
     REGISTER_FILTER(VOLUME,         volume,         af);
@@ -84,6 +85,7 @@ void avfilter_register_all(void)
     REGISTER_FILTER(HFLIP,          hflip,          vf);
     REGISTER_FILTER(HQDN3D,         hqdn3d,         vf);
     REGISTER_FILTER(HWDOWNLOAD,     hwdownload,     vf);
+    REGISTER_FILTER(HWMAP,          hwmap,          vf);
     REGISTER_FILTER(HWUPLOAD,       hwupload,       vf);
     REGISTER_FILTER(HWUPLOAD_CUDA,  hwupload_cuda,  vf);
     REGISTER_FILTER(INTERLACE,      interlace,      vf);

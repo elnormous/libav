@@ -22,9 +22,7 @@
 
 #include "config.h"
 
-#if !HAVE_MKSTEMP
 #include <fcntl.h>
-#endif
 #include <unistd.h>
 #include <xvid.h>
 
@@ -35,36 +33,25 @@
 #include "libxvid.h"
 #include "mpegvideo.h"
 
-/* Wrapper to work around the lack of mkstemp() on mingw.
- * Also, tries to create file in /tmp first, if possible.
+/* Create temporary file using mkstemp(), tries /tmp first, if possible.
  * *prefix can be a character constant; *filename will be allocated internally.
- * @return file descriptor of opened file (or -1 on error)
+ * Return file descriptor of opened file (or error code on error)
  * and opened file name in **filename. */
 int ff_tempfile(const char *prefix, char **filename)
 {
     int fd = -1;
-#if !HAVE_MKSTEMP
-    *filename = tempnam(".", prefix);
-#else
     size_t len = strlen(prefix) + 12; /* room for "/tmp/" and "XXXXXX\0" */
     *filename  = av_malloc(len);
-#endif
-    /* -----common section-----*/
     if (!(*filename)) {
         av_log(NULL, AV_LOG_ERROR, "ff_tempfile: Cannot allocate file name\n");
         return AVERROR(ENOMEM);
     }
-#if !HAVE_MKSTEMP
-    fd = avpriv_open(*filename, O_RDWR | O_BINARY | O_CREAT, 0444);
-#else
     snprintf(*filename, len, "/tmp/%sXXXXXX", prefix);
     fd = mkstemp(*filename);
     if (fd < 0) {
         snprintf(*filename, len, "./%sXXXXXX", prefix);
         fd = mkstemp(*filename);
     }
-#endif
-    /* -----common section-----*/
     if (fd < 0) {
         av_log(NULL, AV_LOG_ERROR, "ff_tempfile: Cannot open temporary file %s\n", *filename);
         return AVERROR(EIO);
@@ -81,7 +68,7 @@ av_cold int ff_xvid_rate_control_init(MpegEncContext *s)
 
     fd = ff_tempfile("xvidrc.", &tmp_name);
     if (fd < 0) {
-        av_log(NULL, AV_LOG_ERROR, "Can't create temporary pass2 file.\n");
+        av_log(s, AV_LOG_ERROR, "Cannot create temporary pass2 file.\n");
         return fd;
     }
 
@@ -100,7 +87,10 @@ av_cold int ff_xvid_rate_control_init(MpegEncContext *s)
                  (rce->i_tex_bits + rce->p_tex_bits + rce->misc_bits + 7) / 8,
                  (rce->header_bits + rce->mv_bits + 7) / 8);
 
-        write(fd, tmp, strlen(tmp));
+        if (strlen(tmp) > write(fd, tmp, strlen(tmp))) {
+            av_log(s, AV_LOG_ERROR, "Cannot write to temporary pass2 file.\n");
+            return AVERROR(EIO);
+        }
     }
 
     close(fd);
@@ -119,7 +109,7 @@ av_cold int ff_xvid_rate_control_init(MpegEncContext *s)
 
     if (xvid_plugin_2pass2(NULL, XVID_PLG_CREATE, &xvid_plg_create,
                            &s->rc_context.non_lavc_opaque) < 0) {
-        av_log(NULL, AV_LOG_ERROR, "xvid_plugin_2pass2 failed\n");
+        av_log(s, AV_LOG_ERROR, "xvid_plugin_2pass2 failed\n");
         return -1;
     }
     return 0;
@@ -154,7 +144,7 @@ float ff_xvid_rate_estimate_qscale(MpegEncContext *s, int dry_run)
             xvid_plg_data.type          = s->last_pict_type;
             if (xvid_plugin_2pass2(s->rc_context.non_lavc_opaque,
                                    XVID_PLG_AFTER, &xvid_plg_data, NULL)) {
-                av_log(s->avctx, AV_LOG_ERROR,
+                av_log(s, AV_LOG_ERROR,
                        "xvid_plugin_2pass2(handle, XVID_PLG_AFTER, ...) FAILED\n");
                 return -1;
             }
@@ -164,7 +154,7 @@ float ff_xvid_rate_estimate_qscale(MpegEncContext *s, int dry_run)
         xvid_plg_data.quant               = 0;
         if (xvid_plugin_2pass2(s->rc_context.non_lavc_opaque,
                                XVID_PLG_BEFORE, &xvid_plg_data, NULL)) {
-            av_log(s->avctx, AV_LOG_ERROR,
+            av_log(s, AV_LOG_ERROR,
                    "xvid_plugin_2pass2(handle, XVID_PLG_BEFORE, ...) FAILED\n");
             return -1;
         }

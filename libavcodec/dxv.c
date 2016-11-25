@@ -393,7 +393,8 @@ static int dxv_decode(AVCodecContext *avctx, void *data,
             ctx->tex_funct = ctx->texdsp.dxt1_block;
             ctx->tex_step  = 8;
         } else {
-            av_log(avctx, AV_LOG_ERROR, "Unsupported header (0x%08X)\n.", tag);
+            av_log(avctx, AV_LOG_ERROR,
+                   "Unsupported header (0x%08"PRIX32")\n.", tag);
             return AVERROR_INVALIDDATA;
         }
         ctx->tex_rat = 1;
@@ -421,7 +422,7 @@ static int dxv_decode(AVCodecContext *avctx, void *data,
 
     if (size != bytestream2_get_bytes_left(gbc)) {
         av_log(avctx, AV_LOG_ERROR,
-               "Incomplete or invalid file (header %d, left %d).\n",
+               "Incomplete or invalid file (header %d, left %u).\n",
                size, bytestream2_get_bytes_left(gbc));
         return AVERROR_INVALIDDATA;
     }

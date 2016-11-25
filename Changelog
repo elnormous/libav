@@ -2,6 +2,9 @@ Entries are sorted chronologically from oldest to youngest within each release,
 releases are sorted from youngest to oldest.
 
 version <next>:
+
+
+version 12:
 - aliases and defaults for Ogg subtypes (opus, spx)
 - HEVC/H.265 RTP payload format (draft v6) packetizer and depacketizer
 - avplay now exits by default at the end of playback
@@ -60,8 +63,10 @@ version <next>:
 - MagicYUV decoder
 - Duck TrueMotion 2.0 Real Time decoder
 - Intel QSV video scaling and deinterlacing filter
+- Support MOV with multiple sample description tables
 - OpenH264 decoder wrapper
 - Removed the legacy X11 screen grabber, use XCB instead
+- HDCD decoding filter through libhdcd
 
 
 version 11:

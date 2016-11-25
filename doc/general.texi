@@ -95,6 +95,14 @@ Go to @url{http://www.wavpack.com/} and follow the instructions for
 installing the library. Then pass @code{--enable-libwavpack} to configure to
 enable it.
 
+@section libxavs
+
+Libav can make use of the libxavs library for Xavs encoding.
+
+Go to @url{http://xavs.sf.net/} and follow the instructions for
+installing the library. Then pass @code{--enable-libxavs} to configure to
+enable it.
+
 @section OpenH264
 
 Libav can make use of the OpenH264 library for H.264 encoding and decoding.
@@ -157,6 +165,15 @@ Go to @url{https://github.com/dekkers/libilbc} and follow the instructions for
 installing the library. Then pass @code{--enable-libilbc} to configure to
 enable it.
 
+@section libhdcd
+
+Libav can make use of the libhdcd library for High Definition Compatible
+Digital (HDCD) decoding via the @code{hdcd} filter.
+
+Go to @url{https://github.com/bp0/libhdcd} and follow the instructions for
+installing the library. Then pass @code{--enable-libhdcd} to configure to
+enable it.
+
 @section AviSynth
 
 Libav can read AviSynth scripts as input. To enable support you need a
@@ -171,6 +188,19 @@ For Windows, supported AviSynth variants are
 @url{https://github.com/AviSynth/AviSynthPlus, AviSynth+'s git repository}
 provides a GNU-style Makefile which can install just the headers using
 @code{make install PREFIX=/install/prefix}.
+
+@float NOTE
+There is currently a regression in AviSynth+'s @code{capi.h} header as of
+October 2016, which interferes with the ability for builds of Libav to use
+MSVC-built binaries of AviSynth. Until this is resolved, you can make sure
+a known good version is installed by checking out a version from before
+the regression occurred:
+
+@code{git clone -b MT git://github.com/AviSynth/AviSynthPlus.git @*
+cd AviSynthPlus @*
+git checkout -b oldheader b4f292b4dbfad149697fb65c6a037bb3810813f9 @*
+make install PREFIX=/install/prefix}
+@end float
 
 @float NOTE
 When using AviSynth+'s installed headers, the user must also pass

@@ -565,11 +565,11 @@ static av_always_inline int is16BPS(enum AVPixelFormat pix_fmt)
     return desc->comp[0].depth == 16;
 }
 
-static av_always_inline int is9_OR_10BPS(enum AVPixelFormat pix_fmt)
+static av_always_inline int is9_15BPS(enum AVPixelFormat pix_fmt)
 {
     const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(pix_fmt);
     av_assert0(desc);
-    return desc->comp[0].depth == 9 || desc->comp[0].depth == 10;
+    return desc->comp[0].depth >= 9 && desc->comp[0].depth <= 15;
 }
 
 static av_always_inline int isBE(enum AVPixelFormat pix_fmt)
@@ -603,6 +603,8 @@ static av_always_inline int isRGB(enum AVPixelFormat pix_fmt)
 #define isGray(x)                      \
     ((x) == AV_PIX_FMT_GRAY8       ||  \
      (x) == AV_PIX_FMT_YA8         ||  \
+     (x) == AV_PIX_FMT_GRAY12BE    ||  \
+     (x) == AV_PIX_FMT_GRAY12LE    ||  \
      (x) == AV_PIX_FMT_GRAY16BE    ||  \
      (x) == AV_PIX_FMT_GRAY16LE    ||  \
      (x) == AV_PIX_FMT_YA16BE      ||  \

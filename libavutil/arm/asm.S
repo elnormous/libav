@@ -83,6 +83,9 @@ ELF     .section .note.GNU-stack,"",%progbits @ Mark stack as non-executable
         put_pic         %(.Lpic_idx - 1)
         .noaltmacro
       .endif
+      .if .Lpic_gp
+        .unreq          gp
+      .endif
 ELF     .size   \name, . - \name
 FUNC    .endfunc
         .purgem endfunc
@@ -181,6 +184,15 @@ T       ldr             \rd, [\rd]
 .endm
 
 .macro  movrelx         rd,  val, gp
+    .ifc \rd,\gp
+        .error      "movrelx needs two distinct registers"
+    .endif
+    .ifc \rd\()_\gp,r12_
+        .warning    "movrelx rd=\rd without explicit set gp"
+    .endif
+    .ifc \rd\()_\gp,ip_
+        .warning    "movrelx rd=\rd without explicit set gp"
+    .endif
 #if CONFIG_PIC && defined(__ELF__)
     .ifnb \gp
       .if .Lpic_gp

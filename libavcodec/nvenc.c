@@ -89,11 +89,21 @@ const enum AVPixelFormat ff_nvenc_pix_fmts[] = {
     AV_PIX_FMT_NV12,
     AV_PIX_FMT_YUV420P,
     AV_PIX_FMT_YUV444P,
+#if NVENCAPI_MAJOR_VERSION >= 7
+    AV_PIX_FMT_P010,
+    AV_PIX_FMT_YUV444P16,
+#endif
 #if CONFIG_CUDA
     AV_PIX_FMT_CUDA,
 #endif
     AV_PIX_FMT_NONE
 };
+
+#define IS_10BIT(pix_fmt)  (pix_fmt == AV_PIX_FMT_P010    || \
+                            pix_fmt == AV_PIX_FMT_YUV444P16)
+
+#define IS_YUV444(pix_fmt) (pix_fmt == AV_PIX_FMT_YUV444P || \
+                            pix_fmt == AV_PIX_FMT_YUV444P16)
 
 static const struct {
     NVENCSTATUS nverr;
@@ -459,18 +469,26 @@ typedef struct GUIDTuple {
     int flags;
 } GUIDTuple;
 
+#define PRESET_ALIAS(alias, name, ...) \
+    [PRESET_ ## alias] = { NV_ENC_PRESET_ ## name ## _GUID, __VA_ARGS__ }
+
+#define PRESET(name, ...) PRESET_ALIAS(name, name, __VA_ARGS__)
+
 static int nvec_map_preset(NVENCContext *ctx)
 {
     GUIDTuple presets[] = {
-        { NV_ENC_PRESET_DEFAULT_GUID },
-        { NV_ENC_PRESET_HP_GUID },
-        { NV_ENC_PRESET_HQ_GUID },
-        { NV_ENC_PRESET_BD_GUID },
-        { NV_ENC_PRESET_LOW_LATENCY_DEFAULT_GUID, NVENC_LOWLATENCY },
-        { NV_ENC_PRESET_LOW_LATENCY_HP_GUID,      NVENC_LOWLATENCY },
-        { NV_ENC_PRESET_LOW_LATENCY_HQ_GUID,      NVENC_LOWLATENCY },
-        { NV_ENC_PRESET_LOSSLESS_DEFAULT_GUID,    NVENC_LOSSLESS },
-        { NV_ENC_PRESET_LOSSLESS_HP_GUID,         NVENC_LOSSLESS },
+        PRESET(DEFAULT),
+        PRESET(HP),
+        PRESET(HQ),
+        PRESET(BD),
+        PRESET(LOW_LATENCY_DEFAULT, NVENC_LOWLATENCY),
+        PRESET(LOW_LATENCY_HP,      NVENC_LOWLATENCY),
+        PRESET(LOW_LATENCY_HQ,      NVENC_LOWLATENCY),
+        PRESET(LOSSLESS_DEFAULT,    NVENC_LOSSLESS),
+        PRESET(LOSSLESS_HP,         NVENC_LOSSLESS),
+        PRESET_ALIAS(SLOW, HQ,      NVENC_TWO_PASSES),
+        PRESET_ALIAS(MEDIUM, HQ,    NVENC_ONE_PASS),
+        PRESET_ALIAS(FAST, HP,      NVENC_ONE_PASS),
         { { 0 } }
     };
 
@@ -481,6 +499,9 @@ static int nvec_map_preset(NVENCContext *ctx)
 
     return AVERROR(EINVAL);
 }
+
+#undef PRESET
+#undef PRESET_ALIAS
 
 static void set_constqp(AVCodecContext *avctx, NV_ENC_RC_PARAMS *rc)
 {
@@ -589,6 +610,53 @@ static void nvenc_setup_rate_control(AVCodecContext *avctx)
 
     if (rc->averageBitRate > 0)
         avctx->bit_rate = rc->averageBitRate;
+
+#if NVENCAPI_MAJOR_VERSION >= 7
+    if (ctx->aq) {
+        ctx->config.rcParams.enableAQ   = 1;
+        ctx->config.rcParams.aqStrength = ctx->aq_strength;
+        av_log(avctx, AV_LOG_VERBOSE, "AQ enabled.\n");
+    }
+
+    if (ctx->temporal_aq) {
+        ctx->config.rcParams.enableTemporalAQ = 1;
+        av_log(avctx, AV_LOG_VERBOSE, "Temporal AQ enabled.\n");
+    }
+
+    if (ctx->rc_lookahead) {
+        int lkd_bound = FFMIN(ctx->nb_surfaces, ctx->async_depth) -
+                        ctx->config.frameIntervalP - 4;
+
+        if (lkd_bound < 0) {
+            av_log(avctx, AV_LOG_WARNING,
+                   "Lookahead not enabled. Increase buffer delay (-delay).\n");
+        } else {
+            ctx->config.rcParams.enableLookahead = 1;
+            ctx->config.rcParams.lookaheadDepth  = av_clip(ctx->rc_lookahead, 0, lkd_bound);
+            ctx->config.rcParams.disableIadapt   = ctx->no_scenecut;
+            ctx->config.rcParams.disableBadapt   = !ctx->b_adapt;
+            av_log(avctx, AV_LOG_VERBOSE,
+                   "Lookahead enabled: depth %d, scenecut %s, B-adapt %s.\n",
+                   ctx->config.rcParams.lookaheadDepth,
+                   ctx->config.rcParams.disableIadapt ? "disabled" : "enabled",
+                   ctx->config.rcParams.disableBadapt ? "disabled" : "enabled");
+        }
+    }
+
+    if (ctx->strict_gop) {
+        ctx->config.rcParams.strictGOPTarget = 1;
+        av_log(avctx, AV_LOG_VERBOSE, "Strict GOP target enabled.\n");
+    }
+
+    if (ctx->nonref_p)
+        ctx->config.rcParams.enableNonRefP = 1;
+
+    if (ctx->zerolatency)
+        ctx->config.rcParams.zeroReorderDelay = 1;
+
+    if (ctx->quality)
+        ctx->config.rcParams.targetQuality = ctx->quality;
+#endif /* NVENCAPI_MAJOR_VERSION >= 7 */
 }
 
 static int nvenc_setup_h264_config(AVCodecContext *avctx)
@@ -655,6 +723,11 @@ static int nvenc_setup_h264_config(AVCodecContext *avctx)
         break;
     }
 
+    if (ctx->data_pix_fmt == AV_PIX_FMT_YUV444P) {
+        cc->profileGUID = NV_ENC_H264_PROFILE_HIGH_444_GUID;
+        avctx->profile = FF_PROFILE_H264_HIGH_444_PREDICTIVE;
+    }
+
     h264->level = ctx->level;
 
     return 0;
@@ -692,9 +765,47 @@ static int nvenc_setup_hevc_config(AVCodecContext *avctx)
         hevc->outputPictureTimingSEI   = 1;
     }
 
-    /* No other profile is supported in the current SDK version 5 */
-    cc->profileGUID = NV_ENC_HEVC_PROFILE_MAIN_GUID;
-    avctx->profile  = FF_PROFILE_HEVC_MAIN;
+    switch (ctx->profile) {
+    case NV_ENC_HEVC_PROFILE_MAIN:
+        cc->profileGUID = NV_ENC_HEVC_PROFILE_MAIN_GUID;
+        avctx->profile  = FF_PROFILE_HEVC_MAIN;
+        break;
+#if NVENCAPI_MAJOR_VERSION >= 7
+    case NV_ENC_HEVC_PROFILE_MAIN_10:
+        cc->profileGUID = NV_ENC_HEVC_PROFILE_MAIN10_GUID;
+        avctx->profile  = FF_PROFILE_HEVC_MAIN_10;
+        break;
+    case NV_ENC_HEVC_PROFILE_REXT:
+        cc->profileGUID = NV_ENC_HEVC_PROFILE_FREXT_GUID;
+        avctx->profile  = FF_PROFILE_HEVC_REXT;
+        break;
+#endif /* NVENCAPI_MAJOR_VERSION >= 7 */
+    }
+
+    // force setting profile for various input formats
+    switch (ctx->data_pix_fmt) {
+    case AV_PIX_FMT_YUV420P:
+    case AV_PIX_FMT_NV12:
+        cc->profileGUID = NV_ENC_HEVC_PROFILE_MAIN_GUID;
+        avctx->profile  = FF_PROFILE_HEVC_MAIN;
+        break;
+#if NVENCAPI_MAJOR_VERSION >= 7
+    case AV_PIX_FMT_P010:
+        cc->profileGUID = NV_ENC_HEVC_PROFILE_MAIN10_GUID;
+        avctx->profile  = FF_PROFILE_HEVC_MAIN_10;
+        break;
+    case AV_PIX_FMT_YUV444P:
+    case AV_PIX_FMT_YUV444P16:
+        cc->profileGUID = NV_ENC_HEVC_PROFILE_FREXT_GUID;
+        avctx->profile  = FF_PROFILE_HEVC_REXT;
+        break;
+#endif /* NVENCAPI_MAJOR_VERSION >= 7 */
+    }
+
+#if NVENCAPI_MAJOR_VERSION >= 7
+    hevc->chromaFormatIDC     = IS_YUV444(ctx->data_pix_fmt) ? 3 : 1;
+    hevc->pixelBitDepthMinus8 = IS_10BIT(ctx->data_pix_fmt)  ? 2 : 0;
+#endif /* NVENCAPI_MAJOR_VERSION >= 7 */
 
     hevc->sliceMode     = 3;
     hevc->sliceModeData = FFMAX(avctx->slices, 1);
@@ -817,7 +928,7 @@ static int nvenc_setup_encoder(AVCodecContext *avctx)
 
     ret = nv->nvEncInitializeEncoder(ctx->nvenc_ctx, &ctx->params);
     if (ret != NV_ENC_SUCCESS)
-        return nvenc_print_error(avctx, ret, "Cannot initialize the decoder");
+        return nvenc_print_error(avctx, ret, "InitializeEncoder failed");
 
     cpb_props = ff_add_cpb_side_data(avctx);
     if (!cpb_props)
@@ -847,6 +958,14 @@ static int nvenc_alloc_surface(AVCodecContext *avctx, int idx)
     case AV_PIX_FMT_YUV444P:
         ctx->frames[idx].format = NV_ENC_BUFFER_FORMAT_YUV444_PL;
         break;
+#if NVENCAPI_MAJOR_VERSION >= 7
+    case AV_PIX_FMT_P010:
+        ctx->frames[idx].format = NV_ENC_BUFFER_FORMAT_YUV420_10BIT;
+        break;
+    case AV_PIX_FMT_YUV444P16:
+        ctx->frames[idx].format = NV_ENC_BUFFER_FORMAT_YUV444_10BIT;
+        break;
+#endif /* NVENCAPI_MAJOR_VERSION >= 7 */
     default:
         return AVERROR_BUG;
     }
@@ -1085,6 +1204,16 @@ static int nvenc_copy_frame(NV_ENC_LOCK_INPUT_BUFFER *in, const AVFrame *frame)
                             frame->data[1], frame->linesize[1],
                             frame->width, frame->height >> 1);
         break;
+    case AV_PIX_FMT_P010:
+        av_image_copy_plane(buf, in->pitch,
+                            frame->data[0], frame->linesize[0],
+                            frame->width << 1, frame->height);
+        buf += off;
+
+        av_image_copy_plane(buf, in->pitch,
+                            frame->data[1], frame->linesize[1],
+                            frame->width << 1, frame->height >> 1);
+        break;
     case AV_PIX_FMT_YUV444P:
         av_image_copy_plane(buf, in->pitch,
                             frame->data[0], frame->linesize[0],
@@ -1099,6 +1228,21 @@ static int nvenc_copy_frame(NV_ENC_LOCK_INPUT_BUFFER *in, const AVFrame *frame)
         av_image_copy_plane(buf, in->pitch,
                             frame->data[2], frame->linesize[2],
                             frame->width, frame->height);
+        break;
+    case AV_PIX_FMT_YUV444P16:
+        av_image_copy_plane(buf, in->pitch,
+                            frame->data[0], frame->linesize[0],
+                            frame->width << 1, frame->height);
+        buf += off;
+
+        av_image_copy_plane(buf, in->pitch,
+                            frame->data[1], frame->linesize[1],
+                            frame->width << 1, frame->height);
+        buf += off;
+
+        av_image_copy_plane(buf, in->pitch,
+                            frame->data[2], frame->linesize[2],
+                            frame->width << 1, frame->height);
         break;
     default:
         return AVERROR_BUG;

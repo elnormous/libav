@@ -56,6 +56,11 @@ COMPILE_HOSTC = $(call COMPILE,HOSTCC)
 %_host.o: %.c
 	$(COMPILE_HOSTC)
 
+%.o: %.asm
+	$(DEPYASM) $(YASMFLAGS) -I $(<D)/ -M -o $@ $< > $(@:.o=.d)
+	$(YASM) $(YASMFLAGS) -I $(<D)/ -o $@ $<
+	-$(STRIP) $(STRIPFLAGS) $@
+
 %.i: %.c
 	$(CC) $(CCFLAGS) $(CC_E) $<
 
@@ -116,8 +121,13 @@ $(TOOLS): %$(EXESUF): %.o $(EXEOBJS)
 
 tools/cws2fws$(EXESUF): ELIBS = $(ZLIB)
 
+CONFIGURABLE_COMPONENTS =                                           \
+    $(wildcard $(FFLIBS:%=$(SRC_PATH)/lib%/all*.c))                 \
+    $(SRC_PATH)/libavcodec/bitstream_filters.c                      \
+    $(SRC_PATH)/libavformat/protocols.c                             \
+
 config.h: .config
-.config: $(wildcard $(FFLIBS:%=$(SRC_PATH)/lib%/all*.c))
+.config: $(CONFIGURABLE_COMPONENTS)
 	@-tput bold 2>/dev/null
 	@-printf '\nWARNING: $(?F) newer than config.h, rerun configure\n\n'
 	@-tput sgr0 2>/dev/null
@@ -125,7 +135,7 @@ config.h: .config
 SUBDIR_VARS := CLEANFILES EXAMPLES FFLIBS HOSTPROGS TESTPROGS TOOLS      \
                HEADERS ARCH_HEADERS BUILT_HEADERS SKIPHEADERS            \
                ARMV5TE-OBJS ARMV6-OBJS ARMV8-OBJS VFP-OBJS NEON-OBJS     \
-               ALTIVEC-OBJS MMX-OBJS YASM-OBJS                           \
+               ALTIVEC-OBJS VSX-OBJS MMX-OBJS YASM-OBJS                  \
                OBJS HOSTOBJS TESTOBJS
 
 define RESET
@@ -170,6 +180,7 @@ GIT_LOG     = $(SRC_PATH)/.git/logs/HEAD
 .version: $(wildcard $(GIT_LOG)) $(VERSION_SH) config.mak
 .version: M=@
 
+cmdutils.o libavutil/utils.o: avversion.h
 avversion.h .version:
 	$(M)$(VERSION_SH) $(SRC_PATH) avversion.h $(EXTRA_VERSION)
 	$(Q)touch .version

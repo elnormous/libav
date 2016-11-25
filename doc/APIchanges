@@ -13,6 +13,42 @@ libavutil:     2015-08-28
 
 API changes, most recent first:
 
+2016-xx-xx - xxxxxxx - lavf 57.10.0 - avformat.h
+  Add av_stream_add_side_data().
+
+2016-xx-xx - xxxxxxx - lavu 55.28.0 - pixfmt.h
+  Add AV_PIX_FMT_GRAY12(LE/BE).
+
+2016-xx-xx - xxxxxxx - lavu 55.27.0 - hwcontext.h
+  Add av_hwframe_map() and associated AV_HWFRAME_MAP_* flags.
+  Add av_hwframe_ctx_create_derived().
+
+2016-xx-xx - xxxxxxx - lavu 55.25.0 - pixfmt.h
+  Add AV_PIX_FMT_GBRAP12(LE/BE).
+
+2016-xx-xx - xxxxxxx - lavu 55.24.0 - pixfmt.h
+  Add AV_PIX_FMT_GBRP12(LE/BE).
+
+2016-xx-xx - xxxxxxx - lavu 55.23.0 - hwcontext_vaapi.h
+  Add AV_VAAPI_DRIVER_QUIRK_ATTRIB_MEMTYPE.
+
+2016-xx-xx - xxxxxxx - lavf 57.08.0 - avio.h
+  Add AVIO_SEEKABLE_TIME flag.
+
+2016-xx-xx - xxxxxxx - lavu 55.22.0 - pixfmt.h
+  Add AV_PIX_FMT_YUV420P12, AV_PIX_FMT_YUV422P12, and AV_PIX_FMT_YUV444P12.
+
+2016-xx-xx - xxxxxxx - lavc 57.27.0 - avcodec.h
+  Add FF_PROFILE_HEVC_REXT, the extended pixel format profile for HEVC.
+
+2016-08-24 - xxxxxxx - lavu 55.21.0 - imgutils.h
+  Add av_image_copy_uc_from(), a version of av_image_copy() for copying
+  from GPU mapped memory.
+
+2016-xx-xx - xxxxxxx - lavc 59.26.0 - vaapi.h
+  Deprecate struct vaapi_context and the vaapi.h installed header.
+  Callers should set AVCodecContext.hw_frames_ctx instead.
+
 2016-07-20 - xxxxxxx - lavu 55.20.0 - cpu.h
   Add AV_CPU_FLAG_SSSE3SLOW.
 
