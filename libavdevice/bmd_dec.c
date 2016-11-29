@@ -429,7 +429,7 @@ static int bmd_read_header(AVFormatContext *s)
         goto out;
     }
 
-    ctx->last_time = av_gettime();
+    ctx->last_time = av_gettime_relative();
 
     decklink_capture_start(ctx->capture);
 
@@ -444,7 +444,7 @@ static int bmd_read_packet(AVFormatContext *s, AVPacket *pkt)
     BMDCaptureContext *ctx = s->priv_data;
     int ret;
 
-    if (av_gettime() - ctx->last_time > ctx->timeout * 1000000) {
+    if (av_gettime_relative() - ctx->last_time > ctx->timeout * 1000000) {
         ret = AVERROR_STREAM_NOT_FOUND;
         av_log(s, AV_LOG_ERROR, "didn't receive video input for %" PRId64 " seconds.\n", ctx->timeout);
     }
@@ -452,7 +452,7 @@ static int bmd_read_packet(AVFormatContext *s, AVPacket *pkt)
         ret = packet_queue_get(&ctx->q, pkt, 0);
 
         if (ret != AVERROR(EAGAIN)) {
-            ctx->last_time = av_gettime();
+            ctx->last_time = av_gettime_relative();
         }
     }
 
