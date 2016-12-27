@@ -561,8 +561,11 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
             gettimeofday(&tv, NULL);
             millis = 1000 * tv.tv_sec + tv.tv_usec / 1000;
 
-            prev_wrap_timestamp = first_timewrap + ((tv.tv_sec - first_timewrap) / three_weeks * three_weeks) + stream_hash * 10 * 60;
+            prev_wrap_timestamp = first_timewrap + ((tv.tv_sec - first_timewrap - stream_hash * 10 * 60) / three_weeks * three_weeks) + stream_hash * 10 * 60;
             next_wrap_timestamp = prev_wrap_timestamp + three_weeks;
+
+            timeinfo = localtime(&tv.tv_sec);
+            av_log(s, AV_LOG_INFO, "Current timestamp: %zu, %s", tv.tv_sec, asctime(timeinfo));
 
             timeinfo = localtime(&prev_wrap_timestamp);
             av_log(s, AV_LOG_INFO, "Previous stop on: %zu, %s", prev_wrap_timestamp, asctime(timeinfo));
