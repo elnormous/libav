@@ -400,12 +400,12 @@ static int bmd_read_packet(AVFormatContext *s, AVPacket *pkt)
 #define D AV_OPT_FLAG_DECODING_PARAM
 static const AVOption options[] = {
     { "instance",         "Device instance",    OD(instance),         AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-    { "video_mode",       "Video mode",         OD(video_mode),       AV_OPT_TYPE_INT, {.i64 = 0}, -1, INT_MAX, D },
+    { "video_mode",       "Video mode, -1 to enable video mode auto detection",         OD(video_mode),       AV_OPT_TYPE_INT, {.i64 = 0}, -1, INT_MAX, D },
     { "video_connection", "Video connection",   OD(video_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { "video_format",     "Video pixel format", OD(pixel_format),     AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { "audio_connection", "Audio connection",   OD(audio_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-    { "video_timeout",    "Video timeout",      OC(timeout),          AV_OPT_TYPE_INT64, {.i64 = 3}, 0, INT_MAX, D },
-    { "queue_size",       "Packet queue size",  OC(queue_size),       AV_OPT_TYPE_INT64, {.i64 = 25}, 0, INT_MAX, D },
+    { "video_timeout",    "Video timeout (in seconds), 0 to disable the timeout",      OC(timeout),          AV_OPT_TYPE_INT64, {.i64 = 3}, 0, INT_MAX, D },
+    { "queue_size",       "Packet queue size, 0 to disable the queue limit",  OC(queue_size),       AV_OPT_TYPE_INT64, {.i64 = 25}, 0, INT_MAX, D },
     { NULL },
 };
 
