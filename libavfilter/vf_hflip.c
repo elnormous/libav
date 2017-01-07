@@ -24,6 +24,7 @@
  * horizontal flip filter
  */
 
+#include <stdlib.h>
 #include <string.h>
 
 #include "avfilter.h"
