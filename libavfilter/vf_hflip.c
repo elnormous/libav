@@ -95,6 +95,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
     int i, j, plane, step, hsub, vsub;
 
     for (plane = 0; plane < 4 && frame->data[plane]; plane++) {
+        int half_width;
         char* temp = NULL;
         step = s->max_step[plane];
 
@@ -105,10 +106,12 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
 
         outrow = frame->data[plane];
         inrow  = frame->data[plane] + ((inlink->w >> hsub) - 1) * step;
+        half_width = (inlink->w >> hsub) / 2;
+
         for (i = 0; i < frame->height >> vsub; i++) {
             switch (step) {
             case 1:
-                for (j = 0; j < (inlink->w >> hsub) / 2; j++) {
+                for (j = 0; j < half_width; j++) {
                     int temp = outrow[j];
                     outrow[j] = inrow[-j];
                     inrow[-j] = temp;
@@ -119,7 +122,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
             {
                 uint16_t *outrow16 = (uint16_t *)outrow;
                 uint16_t * inrow16 = (uint16_t *) inrow;
-                for (j = 0; j < (inlink->w >> hsub) / 2; j++) {
+                for (j = 0; j < half_width; j++) {
                     uint16_t temp = outrow16[j];
                     outrow16[j] = inrow16[-j];
                     inrow16[-j] = temp;
@@ -131,7 +134,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
             {
                 uint8_t *in  =  inrow;
                 uint8_t *out = outrow;
-                for (j = 0; j < (inlink->w >> hsub) / 2; j++, out += 3, in -= 3) {
+                for (j = 0; j < half_width; j++, out += 3, in -= 3) {
                     int32_t inv = AV_RB24(in);
                     int32_t outv = AV_RB24(out);
                     AV_WB24(out, inv);
@@ -144,7 +147,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
             {
                 uint32_t *outrow32 = (uint32_t *)outrow;
                 uint32_t * inrow32 = (uint32_t *) inrow;
-                for (j = 0; j < (inlink->w >> hsub) / 2; j++) {
+                for (j = 0; j < half_width; j++) {
                     uint32_t temp = outrow32[j];
                     outrow32[j] = inrow32[-j];
                     inrow32[-j] = temp;
@@ -153,7 +156,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
             break;
 
             default:
-                for (j = 0; j < (inlink->w >> hsub); j++) {
+                for (j = 0; j < half_width; j++) {
                     memcpy(temp, outrow + j*step, step);
                     memcpy(outrow + j*step, inrow - j*step, step);
                     memcpy(inrow - j*step, temp, step);
