@@ -112,7 +112,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
             switch (step) {
             case 1:
                 for (j = 0; j < half_width; j++) {
-                    int temp = outrow[j];
+                    uint8_t temp = outrow[j];
                     outrow[j] = inrow[-j];
                     inrow[-j] = temp;
                 }
