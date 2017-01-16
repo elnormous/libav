@@ -137,11 +137,9 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
             case 3:
             {
                 for (i = 0; i < frame->height >> vsub; i++) {
-                    uint8_t *in  =  inrow;
-                    uint8_t *out = outrow;
                     for (j = 0; j < half_width; j++, out += 3, in -= 3) {
-                        int32_t inv = AV_RB24(in);
-                        int32_t outv = AV_RB24(out);
+                        int32_t inv = AV_RB24(inrow);
+                        int32_t outv = AV_RB24(outrow);
                         AV_WB24(out, inv);
                         AV_WB24(in, outv);
                     }
