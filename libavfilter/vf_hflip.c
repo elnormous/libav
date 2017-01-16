@@ -140,8 +140,8 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
                     for (j = 0; j < half_width; j++, out += 3, in -= 3) {
                         int32_t inv = AV_RB24(inrow);
                         int32_t outv = AV_RB24(outrow);
-                        AV_WB24(out, inv);
-                        AV_WB24(in, outv);
+                        AV_WB24(outrow, inv);
+                        AV_WB24(inrow, outv);
                     }
                     inrow  += frame->linesize[plane];
                     outrow += frame->linesize[plane];
