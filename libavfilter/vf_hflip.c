@@ -96,10 +96,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
 
     for (plane = 0; plane < 4 && frame->data[plane]; plane++) {
         int half_width;
-        char* temp = NULL;
         step = s->max_step[plane];
-
-        if (step > 4) temp = malloc(step);
 
         hsub = (plane == 1 || plane == 2) ? s->hsub : 0;
         vsub = (plane == 1 || plane == 2) ? s->vsub : 0;
@@ -156,18 +153,21 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
             break;
 
             default:
+            {
+                char* temp = malloc(step);
                 for (j = 0; j < half_width; j++) {
                     memcpy(temp, outrow + j*step, step);
                     memcpy(outrow + j*step, inrow - j*step, step);
                     memcpy(inrow - j*step, temp, step);
                 }
+                free(temp);
+            }
+
             }
 
             inrow  += frame->linesize[plane];
             outrow += frame->linesize[plane];
         }
-
-        if (temp) free(temp);
     }
 
     return ff_filter_frame(outlink, frame);
