@@ -105,49 +105,64 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
         inrow  = frame->data[plane] + ((inlink->w >> hsub) - 1) * step;
         half_width = (inlink->w >> hsub) / 2;
 
-        for (i = 0; i < frame->height >> vsub; i++) {
-            switch (step) {
+        switch (step) {
             case 1:
-                for (j = 0; j < half_width; j++) {
-                    uint8_t temp = outrow[j];
-                    outrow[j] = inrow[-j];
-                    inrow[-j] = temp;
+                for (i = 0; i < frame->height >> vsub; i++) {
+                    for (j = 0; j < half_width; j++) {
+                        uint8_t temp = outrow[j];
+                        outrow[j] = inrow[-j];
+                        inrow[-j] = temp;
+                    }
+                    inrow  += frame->linesize[plane];
+                    outrow += frame->linesize[plane];
                 }
             break;
 
             case 2:
             {
-                uint16_t *outrow16 = (uint16_t *)outrow;
-                uint16_t * inrow16 = (uint16_t *) inrow;
-                for (j = 0; j < half_width; j++) {
-                    uint16_t temp = outrow16[j];
-                    outrow16[j] = inrow16[-j];
-                    inrow16[-j] = temp;
+                for (i = 0; i < frame->height >> vsub; i++) {
+                    uint16_t *outrow16 = (uint16_t *)outrow;
+                    uint16_t * inrow16 = (uint16_t *) inrow;
+                    for (j = 0; j < half_width; j++) {
+                        uint16_t temp = outrow16[j];
+                        outrow16[j] = inrow16[-j];
+                        inrow16[-j] = temp;
+                    }
+                    inrow  += frame->linesize[plane];
+                    outrow += frame->linesize[plane];
                 }
             }
             break;
 
             case 3:
             {
-                uint8_t *in  =  inrow;
-                uint8_t *out = outrow;
-                for (j = 0; j < half_width; j++, out += 3, in -= 3) {
-                    int32_t inv = AV_RB24(in);
-                    int32_t outv = AV_RB24(out);
-                    AV_WB24(out, inv);
-                    AV_WB24(in, outv);
+                for (i = 0; i < frame->height >> vsub; i++) {
+                    uint8_t *in  =  inrow;
+                    uint8_t *out = outrow;
+                    for (j = 0; j < half_width; j++, out += 3, in -= 3) {
+                        int32_t inv = AV_RB24(in);
+                        int32_t outv = AV_RB24(out);
+                        AV_WB24(out, inv);
+                        AV_WB24(in, outv);
+                    }
+                    inrow  += frame->linesize[plane];
+                    outrow += frame->linesize[plane];
                 }
             }
             break;
 
             case 4:
             {
-                uint32_t *outrow32 = (uint32_t *)outrow;
-                uint32_t * inrow32 = (uint32_t *) inrow;
-                for (j = 0; j < half_width; j++) {
-                    uint32_t temp = outrow32[j];
-                    outrow32[j] = inrow32[-j];
-                    inrow32[-j] = temp;
+                for (i = 0; i < frame->height >> vsub; i++) {
+                    uint32_t *outrow32 = (uint32_t *)outrow;
+                    uint32_t * inrow32 = (uint32_t *) inrow;
+                    for (j = 0; j < half_width; j++) {
+                        uint32_t temp = outrow32[j];
+                        outrow32[j] = inrow32[-j];
+                        inrow32[-j] = temp;
+                    }
+                    inrow  += frame->linesize[plane];
+                    outrow += frame->linesize[plane];
                 }
             }
             break;
@@ -155,18 +170,17 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
             default:
             {
                 char* temp = malloc(step);
-                for (j = 0; j < half_width; j++) {
-                    memcpy(temp, outrow + j*step, step);
-                    memcpy(outrow + j*step, inrow - j*step, step);
-                    memcpy(inrow - j*step, temp, step);
+                for (i = 0; i < frame->height >> vsub; i++) {
+                    for (j = 0; j < half_width; j++) {
+                        memcpy(temp, outrow + j*step, step);
+                        memcpy(outrow + j*step, inrow - j*step, step);
+                        memcpy(inrow - j*step, temp, step);
+                    }
+                    inrow  += frame->linesize[plane];
+                    outrow += frame->linesize[plane];
                 }
                 free(temp);
             }
-
-            }
-
-            inrow  += frame->linesize[plane];
-            outrow += frame->linesize[plane];
         }
     }
 
