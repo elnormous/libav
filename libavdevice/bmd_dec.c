@@ -320,7 +320,7 @@ static int put_wallclock_packet(BMDCaptureContext *ctx, int64_t pts)
     pkt.stream_index  = ctx->data_st->index;
 
     if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
-        av_log(c, AV_LOG_WARNING, "no space in queue, data frame dropped.\n");
+        av_log(NULL, AV_LOG_WARNING, "no space in queue, data frame dropped.\n");
         ctx->data_st->dropped_frames++;
     }
 
@@ -357,7 +357,7 @@ static int video_callback(void *priv, uint8_t *frame,
     }
 
     if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
-        av_log(c, AV_LOG_WARNING, "no space in queue, video frame dropped.\n");
+        av_log(NULL, AV_LOG_WARNING, "no space in queue, video frame dropped.\n");
         ctx->video_st->dropped_frames++;
     }
 
@@ -388,7 +388,7 @@ static int audio_callback(void *priv, uint8_t *frame,
     pkt.stream_index  = ctx->audio_st->index;
 
     if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
-        av_log(c, AV_LOG_WARNING, "no space in queue, audio frame dropped.\n");
+        av_log(NULL, AV_LOG_WARNING, "no space in queue, audio frame dropped.\n");
         ctx->audio_st->dropped_frames++;
     }
 
@@ -440,7 +440,7 @@ static int bmd_read_packet(AVFormatContext *s, AVPacket *pkt)
 
     if (ctx->timeout > 0 && av_gettime_relative() - ctx->last_time > ctx->timeout * 1000000) {
         ret = AVERROR_STREAM_NOT_FOUND;
-        av_log(s, AV_LOG_ERROR, "didn't receive video input for %" PRId64 " seconds.\n", ctx->timeout);
+        av_log(NULL, AV_LOG_ERROR, "didn't receive video input for %" PRId64 " seconds.\n", ctx->timeout);
     }
     else {
         ret = packet_queue_get(&ctx->q, pkt, 0);
