@@ -83,12 +83,7 @@ static inline int get_vlc_symbol(GetBitContext *gb, VlcState *const state,
     ff_dlog(NULL, "v:%d bias:%d error:%d drift:%d count:%d k:%d",
             v, state->bias, state->error_sum, state->drift, state->count, k);
 
-#if 0 // JPEG LS
-    if (k == 0 && 2 * state->drift <= -state->count)
-        v ^= (-1);
-#else
     v ^= ((2 * state->drift + state->count) >> 31);
-#endif
 
     ret = fold(v + state->bias, bits);
 
@@ -375,8 +370,8 @@ static int decode_slice(AVCodecContext *c, void *arg)
 
     av_assert1(width && height);
     if (f->colorspace == 0) {
-        const int chroma_width  = -((-width) >> f->chroma_h_shift);
-        const int chroma_height = -((-height) >> f->chroma_v_shift);
+        const int chroma_width  = AV_CEIL_RSHIFT(width,  f->chroma_h_shift);
+        const int chroma_height = AV_CEIL_RSHIFT(height, f->chroma_v_shift);
         const int cx            = x >> f->chroma_h_shift;
         const int cy            = y >> f->chroma_v_shift;
         decode_plane(fs, p->data[0] + ps * x + y * p->linesize[0], width,
@@ -537,6 +532,13 @@ static int read_extra_header(FFV1Context *f)
         }
     }
 
+    av_log(f->avctx, AV_LOG_VERBOSE,
+           "FFV1 version %d.%d colorspace %d - %d bits - %d/%d planes, %s transparent - tile geometry %dx%d - %s\n",
+           f->version, f->minor_version, f->colorspace, f->avctx->bits_per_raw_sample,
+           f->plane_count, f->chroma_planes, f->transparency ? "" : "not",
+           f->num_h_slices, f->num_v_slices,
+           f->ec ? "per-slice crc" : "no crc");
+
     return 0;
 }
 
@@ -597,6 +599,12 @@ static int read_header(FFV1Context *f)
     }
 
     if (f->colorspace == 0) {
+        if (f->transparency && f->avctx->bits_per_raw_sample > 8) {
+            av_log(f->avctx, AV_LOG_ERROR,
+                   "Transparency not supported for bit depth %d\n",
+                   f->avctx->bits_per_raw_sample);
+            return AVERROR(ENOSYS);
+        }
         if (!f->transparency && !f->chroma_planes) {
             if (f->avctx->bits_per_raw_sample <= 8)
                 f->avctx->pix_fmt = AV_PIX_FMT_GRAY8;
@@ -694,6 +702,11 @@ static int read_header(FFV1Context *f)
             av_log(f->avctx, AV_LOG_ERROR,
                    "chroma subsampling not supported in this colorspace\n");
             return AVERROR(ENOSYS);
+        }
+        if (f->transparency) {
+            av_log(f->avctx, AV_LOG_ERROR,
+                   "Transparency not supported in this colorspace\n");
+                   return AVERROR(ENOSYS);
         }
         switch (f->avctx->bits_per_raw_sample) {
         case 0:

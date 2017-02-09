@@ -76,36 +76,10 @@ static uint64_t get_fourcc(AVIOContext *bc)
         return -1;
 }
 
-#ifdef TRACE
-static inline uint64_t get_v_trace(AVIOContext *bc, const char *file,
-                                   const char *func, int line)
-{
-    uint64_t v = ffio_read_varlen(bc);
-
-    av_log(NULL, AV_LOG_DEBUG, "get_v %5"PRId64" / %"PRIX64" in %s %s:%d\n",
-           v, v, file, func, line);
-    return v;
-}
-
-static inline int64_t get_s_trace(AVIOContext *bc, const char *file,
-                                  const char *func, int line)
-{
-    int64_t v = get_s(bc);
-
-    av_log(NULL, AV_LOG_DEBUG, "get_s %5"PRId64" / %"PRIX64" in %s %s:%d\n",
-           v, v, file, func, line);
-    return v;
-}
-
-#define ffio_read_varlen(bc) get_v_trace(bc,  __FILE__, __PRETTY_FUNCTION__, __LINE__)
-#define get_s(bc)            get_s_trace(bc,  __FILE__, __PRETTY_FUNCTION__, __LINE__)
-#endif
-
 static int get_packetheader(NUTContext *nut, AVIOContext *bc,
                             int calculate_checksum, uint64_t startcode)
 {
     int64_t size;
-//    start = avio_tell(bc) - 8;
 
     startcode = av_be2ne64(startcode);
     startcode = ff_crc04C11DB7_update(0, (uint8_t*) &startcode, 8);
@@ -367,11 +341,11 @@ static int decode_stream_header(NUTContext *nut)
 
     class                = ffio_read_varlen(bc);
     tmp                  = get_fourcc(bc);
-    st->codec->codec_tag = tmp;
+    st->codecpar->codec_tag = tmp;
     switch (class) {
     case 0:
-        st->codec->codec_type = AVMEDIA_TYPE_VIDEO;
-        st->codec->codec_id   = av_codec_get_id((const AVCodecTag * const []) {
+        st->codecpar->codec_type = AVMEDIA_TYPE_VIDEO;
+        st->codecpar->codec_id   = av_codec_get_id((const AVCodecTag * const []) {
                                                     ff_nut_video_tags,
                                                     ff_codec_bmp_tags,
                                                     0
@@ -379,8 +353,8 @@ static int decode_stream_header(NUTContext *nut)
                                                 tmp);
         break;
     case 1:
-        st->codec->codec_type = AVMEDIA_TYPE_AUDIO;
-        st->codec->codec_id   = av_codec_get_id((const AVCodecTag * const []) {
+        st->codecpar->codec_type = AVMEDIA_TYPE_AUDIO;
+        st->codecpar->codec_id   = av_codec_get_id((const AVCodecTag * const []) {
                                                     ff_nut_audio_tags,
                                                     ff_codec_wav_tags,
                                                     0
@@ -388,18 +362,18 @@ static int decode_stream_header(NUTContext *nut)
                                                 tmp);
         break;
     case 2:
-        st->codec->codec_type = AVMEDIA_TYPE_SUBTITLE;
-        st->codec->codec_id   = ff_codec_get_id(ff_nut_subtitle_tags, tmp);
+        st->codecpar->codec_type = AVMEDIA_TYPE_SUBTITLE;
+        st->codecpar->codec_id   = ff_codec_get_id(ff_nut_subtitle_tags, tmp);
         break;
     case 3:
-        st->codec->codec_type = AVMEDIA_TYPE_DATA;
-        st->codec->codec_id   = ff_codec_get_id(ff_nut_data_tags, tmp);
+        st->codecpar->codec_type = AVMEDIA_TYPE_DATA;
+        st->codecpar->codec_id   = ff_codec_get_id(ff_nut_data_tags, tmp);
         break;
     default:
         av_log(s, AV_LOG_ERROR, "unknown stream class (%d)\n", class);
         return AVERROR(ENOSYS);
     }
-    if (class < 3 && st->codec->codec_id == AV_CODEC_ID_NONE)
+    if (class < 3 && st->codecpar->codec_id == AV_CODEC_ID_NONE)
         av_log(s, AV_LOG_ERROR,
                "Unknown codec tag '0x%04x' for stream number %d\n",
                (unsigned int) tmp, stream_id);
@@ -410,18 +384,18 @@ static int decode_stream_header(NUTContext *nut)
     GET_V(stc->decode_delay, tmp < 1000); // sanity limit, raise this if Moore's law is true
     ffio_read_varlen(bc); // stream flags
 
-    GET_V(st->codec->extradata_size, tmp < (1 << 30));
-    if (st->codec->extradata_size) {
-        st->codec->extradata = av_mallocz(st->codec->extradata_size +
-                                          AV_INPUT_BUFFER_PADDING_SIZE);
-        if (!st->codec->extradata)
+    GET_V(st->codecpar->extradata_size, tmp < (1 << 30));
+    if (st->codecpar->extradata_size) {
+        st->codecpar->extradata = av_mallocz(st->codecpar->extradata_size +
+                                             AV_INPUT_BUFFER_PADDING_SIZE);
+        if (!st->codecpar->extradata)
             return AVERROR(ENOMEM);
-        avio_read(bc, st->codec->extradata, st->codec->extradata_size);
+        avio_read(bc, st->codecpar->extradata, st->codecpar->extradata_size);
     }
 
-    if (st->codec->codec_type == AVMEDIA_TYPE_VIDEO) {
-        GET_V(st->codec->width,  tmp > 0);
-        GET_V(st->codec->height, tmp > 0);
+    if (st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+        GET_V(st->codecpar->width,  tmp > 0);
+        GET_V(st->codecpar->height, tmp > 0);
         st->sample_aspect_ratio.num = ffio_read_varlen(bc);
         st->sample_aspect_ratio.den = ffio_read_varlen(bc);
         if ((!st->sample_aspect_ratio.num) != (!st->sample_aspect_ratio.den)) {
@@ -430,10 +404,10 @@ static int decode_stream_header(NUTContext *nut)
             return AVERROR_INVALIDDATA;
         }
         ffio_read_varlen(bc); /* csp type */
-    } else if (st->codec->codec_type == AVMEDIA_TYPE_AUDIO) {
-        GET_V(st->codec->sample_rate, tmp > 0);
+    } else if (st->codecpar->codec_type == AVMEDIA_TYPE_AUDIO) {
+        GET_V(st->codecpar->sample_rate, tmp > 0);
         ffio_read_varlen(bc); // samplerate_den
-        GET_V(st->codec->channels, tmp > 0);
+        GET_V(st->codecpar->channels, tmp > 0);
     }
     if (skip_reserved(bc, end) || ffio_get_checksum(bc)) {
         av_log(s, AV_LOG_ERROR,
@@ -765,7 +739,7 @@ static int nut_read_header(AVFormatContext *s)
 
     s->internal->data_offset = pos - 8;
 
-    if (bc->seekable) {
+    if (bc->seekable & AVIO_SEEKABLE_NORMAL) {
         int64_t orig_pos = avio_tell(bc);
         find_and_decode_index(nut);
         avio_seek(bc, orig_pos, SEEK_SET);
@@ -890,7 +864,8 @@ static int decode_frame(NUTContext *nut, AVPacket *pkt, int frame_code)
     ret = av_new_packet(pkt, size + nut->header_len[header_idx]);
     if (ret < 0)
         return ret;
-    memcpy(pkt->data, nut->header[header_idx], nut->header_len[header_idx]);
+    if (nut->header[header_idx])
+        memcpy(pkt->data, nut->header[header_idx], nut->header_len[header_idx]);
     pkt->pos = avio_tell(bc); // FIXME
     avio_read(bc, pkt->data + nut->header_len[header_idx], size);
 
@@ -1012,7 +987,8 @@ static int read_seek(AVFormatContext *s, int stream_index,
         pos2 = st->index_entries[index].pos;
         ts   = st->index_entries[index].timestamp;
     } else {
-        av_tree_find(nut->syncpoints, &dummy, (void *) ff_nut_sp_pts_cmp,
+        av_tree_find(nut->syncpoints, &dummy,
+                     (int (*)(void *, const void *)) ff_nut_sp_pts_cmp,
                      (void **) next_node);
         av_log(s, AV_LOG_DEBUG, "%"PRIu64"-%"PRIu64" %"PRId64"-%"PRId64"\n",
                next_node[0]->pos, next_node[1]->pos, next_node[0]->ts,
@@ -1025,7 +1001,8 @@ static int read_seek(AVFormatContext *s, int stream_index,
         if (!(flags & AVSEEK_FLAG_BACKWARD)) {
             dummy.pos    = pos + 16;
             next_node[1] = &nopts_sp;
-            av_tree_find(nut->syncpoints, &dummy, (void *) ff_nut_sp_pos_cmp,
+            av_tree_find(nut->syncpoints, &dummy,
+                         (int (*)(void *, const void *)) ff_nut_sp_pos_cmp,
                          (void **) next_node);
             pos2 = ff_gen_search(s, -2, dummy.pos, next_node[0]->pos,
                                  next_node[1]->pos, next_node[1]->pos,
@@ -1036,7 +1013,8 @@ static int read_seek(AVFormatContext *s, int stream_index,
             // FIXME dir but I think it does not matter
         }
         dummy.pos = pos;
-        sp = av_tree_find(nut->syncpoints, &dummy, (void *) ff_nut_sp_pos_cmp,
+        sp = av_tree_find(nut->syncpoints, &dummy,
+                          (int (*)(void *, const void *)) ff_nut_sp_pos_cmp,
                           NULL);
 
         assert(sp);

@@ -19,9 +19,12 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
+#include "libavutil/buffer.h"
 #include "libavutil/channel_layout.h"
 #include "libavutil/common.h"
+#include "libavutil/hwcontext.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/internal.h"
 #include "libavutil/opt.h"
@@ -207,6 +210,15 @@ int avfilter_config_links(AVFilterContext *filter)
                            "width and height\n");
                     return AVERROR(EINVAL);
                 }
+            }
+
+            if (link->src->nb_inputs && link->src->inputs[0]->hw_frames_ctx &&
+                !(link->src->filter->flags_internal & FF_FILTER_FLAG_HWFRAME_AWARE)) {
+                av_assert0(!link->hw_frames_ctx &&
+                           "should not be set by non-hwframe-aware filter");
+                link->hw_frames_ctx = av_buffer_ref(link->src->inputs[0]->hw_frames_ctx);
+                if (!link->hw_frames_ctx)
+                    return AVERROR(ENOMEM);
             }
 
             if ((config_link = link->dstpad->config_props))
@@ -481,6 +493,8 @@ static void free_link(AVFilterLink *link)
     if (link->dst)
         link->dst->inputs[link->dstpad - link->dst->input_pads] = NULL;
 
+    av_buffer_unref(&link->hw_frames_ctx);
+
     ff_formats_unref(&link->in_formats);
     ff_formats_unref(&link->out_formats);
     ff_formats_unref(&link->in_samplerates);
@@ -509,6 +523,8 @@ void avfilter_free(AVFilterContext *filter)
 
     if (filter->filter->priv_class)
         av_opt_free(filter->priv);
+
+    av_buffer_unref(&filter->hw_device_ctx);
 
     av_freep(&filter->name);
     av_freep(&filter->input_pads);

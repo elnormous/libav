@@ -26,11 +26,11 @@
 
 #include <mfx/mfxvideo.h>
 
+#include "libavutil/common.h"
 #include "libavutil/opt.h"
 
 #include "avcodec.h"
 #include "internal.h"
-#include "h264.h"
 #include "qsv.h"
 #include "qsv_internal.h"
 #include "qsvenc.h"
@@ -109,7 +109,9 @@ static const AVCodecDefault qsv_enc_defaults[] = {
     { "coder",     "ac"    },
 
     { "flags",     "+cgop" },
+#if FF_API_PRIVATE_OPT
     { "b_strategy", "-1"   },
+#endif
     { NULL },
 };
 
@@ -124,6 +126,7 @@ AVCodec ff_h264_qsv_encoder = {
     .close          = qsv_enc_close,
     .capabilities   = AV_CODEC_CAP_DELAY,
     .pix_fmts       = (const enum AVPixelFormat[]){ AV_PIX_FMT_NV12,
+                                                    AV_PIX_FMT_P010,
                                                     AV_PIX_FMT_QSV,
                                                     AV_PIX_FMT_NONE },
     .priv_class     = &class,

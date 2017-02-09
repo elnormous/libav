@@ -101,8 +101,8 @@ typedef struct WmallDecodeCtx {
     uint32_t        frame_num;                      ///< current frame number (not used for decoding)
     GetBitContext   gb;                             ///< bitstream reader context
     int             buf_bit_size;                   ///< buffer size in bits
-    int16_t         *samples_16[WMALL_MAX_CHANNELS]; ///< current samplebuffer pointer (16-bit)
-    int32_t         *samples_32[WMALL_MAX_CHANNELS]; ///< current samplebuffer pointer (24-bit)
+    int16_t         *samples_16[WMALL_MAX_CHANNELS]; ///< current sample buffer pointer (16-bit)
+    int32_t         *samples_32[WMALL_MAX_CHANNELS]; ///< current sample buffer pointer (24-bit)
     uint8_t         drc_gain;                       ///< gain for the DRC tool
     int8_t          skip_frame;                     ///< skip output step
     int8_t          parsed_all_subframes;           ///< all subframes decoded?
@@ -411,8 +411,7 @@ static void decode_ac_filter(WmallDecodeCtx *s)
     s->acfilter_scaling = get_bits(&s->gb, 4);
 
     for (i = 0; i < s->acfilter_order; i++)
-        s->acfilter_coeffs[i] = (s->acfilter_scaling ?
-                                 get_bits(&s->gb, s->acfilter_scaling) : 0) + 1;
+        s->acfilter_coeffs[i] = get_bitsz(&s->gb, s->acfilter_scaling) + 1;
 }
 
 static void decode_mclms(WmallDecodeCtx *s)
@@ -425,7 +424,7 @@ static void decode_mclms(WmallDecodeCtx *s)
         if (1 << cbits < s->mclms_scaling + 1)
             cbits++;
 
-        send_coef_bits = (cbits ? get_bits(&s->gb, cbits) : 0) + 2;
+        send_coef_bits = get_bitsz(&s->gb, cbits) + 2;
 
         for (i = 0; i < s->mclms_order * s->num_channels * s->num_channels; i++)
             s->mclms_coeffs[i] = get_bits(&s->gb, send_coef_bits);
@@ -471,7 +470,7 @@ static int decode_cdlms(WmallDecodeCtx *s)
                 if ((1 << cbits) < s->cdlms[c][i].scaling + 1)
                     cbits++;
 
-                s->cdlms[c][i].bitsend = get_bits(&s->gb, cbits) + 2;
+                s->cdlms[c][i].bitsend = get_bitsz(&s->gb, cbits) + 2;
                 shift_l = 32 - s->cdlms[c][i].bitsend;
                 shift_r = 32 - s->cdlms[c][i].scaling - 2;
                 for (j = 0; j < s->cdlms[c][i].coefsend; j++)
@@ -1193,7 +1192,7 @@ static int decode_packet(AVCodecContext *avctx, void *data, int *got_frame_ptr,
         /* parse packet header */
         init_get_bits(gb, buf, s->buf_bit_size);
         packet_sequence_number = get_bits(gb, 4);
-        skip_bits(gb, 1);   // Skip seekable_frame_in_packet, currently ununused
+        skip_bits(gb, 1);   // Skip seekable_frame_in_packet, currently unused
         spliced_packet = get_bits1(gb);
         if (spliced_packet)
             avpriv_request_sample(avctx, "Bitstream splicing");

@@ -76,6 +76,10 @@ probefmt(){
     run avprobe -show_format_entry format_name -v 0 "$@"
 }
 
+probestream(){
+    run avprobe -show_stream_entry "$1" -v 0 "$2"
+}
+
 avconv(){
     dec_opts="-hwaccel $hwaccel -threads $threads -thread_type $thread_type"
     avconv_args="-nostats -cpuflags $cpuflags"
@@ -167,7 +171,7 @@ pixfmts(){
     filter=${test#filter-pixfmts-}
     filter_args=$1
 
-    showfiltfmts="$target_exec $target_path/libavfilter/filtfmts-test"
+    showfiltfmts="$target_exec $target_path/libavfilter/tests/filtfmts"
     exclude_fmts=${outfile}${filter}_exclude_fmts
     out_fmts=${outfile}${filter}_out_fmts
 

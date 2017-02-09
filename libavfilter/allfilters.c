@@ -57,6 +57,7 @@ void avfilter_register_all(void)
     REGISTER_FILTER(CHANNELMAP,     channelmap,     af);
     REGISTER_FILTER(CHANNELSPLIT,   channelsplit,   af);
     REGISTER_FILTER(COMPAND,        compand,        af);
+    REGISTER_FILTER(HDCD,           hdcd,           af);
     REGISTER_FILTER(JOIN,           join,           af);
     REGISTER_FILTER(RESAMPLE,       resample,       af);
     REGISTER_FILTER(VOLUME,         volume,         af);
@@ -70,6 +71,7 @@ void avfilter_register_all(void)
     REGISTER_FILTER(COPY,           copy,           vf);
     REGISTER_FILTER(CROP,           crop,           vf);
     REGISTER_FILTER(CROPDETECT,     cropdetect,     vf);
+    REGISTER_FILTER(DEINTERLACE_QSV,deinterlace_qsv,vf);
     REGISTER_FILTER(DELOGO,         delogo,         vf);
     REGISTER_FILTER(DRAWBOX,        drawbox,        vf);
     REGISTER_FILTER(DRAWTEXT,       drawtext,       vf);
@@ -82,6 +84,10 @@ void avfilter_register_all(void)
     REGISTER_FILTER(GRADFUN,        gradfun,        vf);
     REGISTER_FILTER(HFLIP,          hflip,          vf);
     REGISTER_FILTER(HQDN3D,         hqdn3d,         vf);
+    REGISTER_FILTER(HWDOWNLOAD,     hwdownload,     vf);
+    REGISTER_FILTER(HWMAP,          hwmap,          vf);
+    REGISTER_FILTER(HWUPLOAD,       hwupload,       vf);
+    REGISTER_FILTER(HWUPLOAD_CUDA,  hwupload_cuda,  vf);
     REGISTER_FILTER(INTERLACE,      interlace,      vf);
     REGISTER_FILTER(LUT,            lut,            vf);
     REGISTER_FILTER(LUTRGB,         lutrgb,         vf);
@@ -94,6 +100,9 @@ void avfilter_register_all(void)
     REGISTER_FILTER(PAD,            pad,            vf);
     REGISTER_FILTER(PIXDESCTEST,    pixdesctest,    vf);
     REGISTER_FILTER(SCALE,          scale,          vf);
+    REGISTER_FILTER(SCALE_NPP,      scale_npp,      vf);
+    REGISTER_FILTER(SCALE_QSV,      scale_qsv,      vf);
+    REGISTER_FILTER(SCALE_VAAPI,    scale_vaapi,    vf);
     REGISTER_FILTER(SELECT,         select,         vf);
     REGISTER_FILTER(SETDAR,         setdar,         vf);
     REGISTER_FILTER(SETPTS,         setpts,         vf);

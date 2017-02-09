@@ -1,5 +1,5 @@
 /*
- * MPEG4 decoder.
+ * MPEG-4 decoder
  * Copyright (c) 2000,2001 Fabrice Bellard
  * Copyright (c) 2002-2010 Michael Niedermayer <michaelni@gmx.at>
  *
@@ -28,6 +28,7 @@
 #include "mpegvideodata.h"
 #include "mpeg4video.h"
 #include "h263.h"
+#include "profiles.h"
 #include "thread.h"
 #include "xvididct.h"
 
@@ -49,6 +50,15 @@ static const int mb_type_b_map[4] = {
     MB_TYPE_L1      | MB_TYPE_16x16,
     MB_TYPE_L0      | MB_TYPE_16x16,
 };
+
+static inline int check_marker(AVCodecContext *avctx, GetBitContext *s, const char *msg)
+{
+    int bit = get_bits1(s);
+    if (!bit)
+        av_log(avctx, AV_LOG_INFO, "Marker bit missing %s\n", msg);
+
+    return bit;
+}
 
 /**
  * Predict the ac.
@@ -201,7 +211,7 @@ static int mpeg4_decode_sprite_trajectory(Mpeg4DecContext *ctx, GetBitContext *g
     while ((1 << alpha) < w)
         alpha++;
     while ((1 << beta) < h)
-        beta++;  /* typo in the mpeg4 std for the definition of w' and h' */
+        beta++;  /* typo in the MPEG-4 std for the definition of w' and h' */
     w2 = 1 << alpha;
     h2 = 1 << beta;
 
@@ -224,7 +234,7 @@ static int mpeg4_decode_sprite_trajectory(Mpeg4DecContext *ctx, GetBitContext *g
     /* sprite_ref[3][0] = (a >> 1) * (2 * vop_ref[3][0] + d[0][0] + d[1][0] + d[2][0] + d[3][0]);
      * sprite_ref[3][1] = (a >> 1) * (2 * vop_ref[3][1] + d[0][1] + d[1][1] + d[2][1] + d[3][1]); */
 
-    /* this is mostly identical to the mpeg4 std (and is totally unreadable
+    /* This is mostly identical to the MPEG-4 std (and is totally unreadable
      * because of that...). Perhaps it should be reordered to be more readable.
      * The idea behind this virtual_ref mess is to be able to use shifts later
      * per pixel instead of divides so the distance between points is converted
@@ -436,9 +446,9 @@ int ff_mpeg4_decode_video_packet_header(Mpeg4DecContext *ctx)
         while (get_bits1(&s->gb) != 0)
             time_incr++;
 
-        check_marker(&s->gb, "before time_increment in video packed header");
+        check_marker(s->avctx, &s->gb, "before time_increment in video packed header");
         skip_bits(&s->gb, ctx->time_increment_bits);      /* time_increment */
-        check_marker(&s->gb, "before vop_coding_type in video packed header");
+        check_marker(s->avctx, &s->gb, "before vop_coding_type in video packed header");
 
         skip_bits(&s->gb, 2); /* vop coding type */
         // FIXME not rect stuff here
@@ -1418,7 +1428,7 @@ static int mpeg4_decode_mb(MpegEncContext *s, int16_t block[6][64])
             ff_thread_await_progress(&s->next_picture_ptr->tf, s->mb_y, 0);
         }
 
-        /* if we skipped it in the future P Frame than skip it now too */
+        /* if we skipped it in the future P-frame than skip it now too */
         s->mb_skipped = s->next_picture.mbskip_table[s->mb_y * s->mb_stride + s->mb_x];  // Note, skiptab=0 if last was GMC
 
         if (s->mb_skipped) {
@@ -1708,7 +1718,7 @@ static int decode_vol_header(Mpeg4DecContext *ctx, GetBitContext *gb)
         }
     } else {
         /* is setting low delay flag only once the smartest thing to do?
-         * low delay detection won't be overriden. */
+         * low delay detection will not be overridden. */
         if (s->picture_number == 0)
             s->low_delay = 0;
     }
@@ -1721,7 +1731,7 @@ static int decode_vol_header(Mpeg4DecContext *ctx, GetBitContext *gb)
         skip_bits(gb, 4);  /* video_object_layer_shape_extension */
     }
 
-    check_marker(gb, "before time_increment_resolution");
+    check_marker(s->avctx, gb, "before time_increment_resolution");
 
     s->avctx->framerate.num = get_bits(gb, 16);
     if (!s->avctx->framerate.num) {
@@ -1733,7 +1743,7 @@ static int decode_vol_header(Mpeg4DecContext *ctx, GetBitContext *gb)
     if (ctx->time_increment_bits < 1)
         ctx->time_increment_bits = 1;
 
-    check_marker(gb, "before fixed_vop_rate");
+    check_marker(s->avctx, gb, "before fixed_vop_rate");
 
     if (get_bits1(gb) != 0)     /* fixed_vop_rate  */
         s->avctx->framerate.den = get_bits(gb, ctx->time_increment_bits);
@@ -1764,7 +1774,7 @@ static int decode_vol_header(Mpeg4DecContext *ctx, GetBitContext *gb)
         s->interlaced_dct        = 0;
         if (!get_bits1(gb) && (s->avctx->debug & FF_DEBUG_PICT_INFO))
             av_log(s->avctx, AV_LOG_INFO,           /* OBMC Disable */
-                   "MPEG4 OBMC not supported (very likely buggy encoder)\n");
+                   "MPEG-4 OBMC not supported (very likely buggy encoder)\n");
         if (vo_ver_id == 1)
             ctx->vol_sprite_usage = get_bits1(gb);    /* vol_sprite_usage */
         else
@@ -1891,7 +1901,7 @@ static int decode_vol_header(Mpeg4DecContext *ctx, GetBitContext *gb)
                     ctx->cplx_estimation_trash_i += 8 * get_bits1(gb);  /* intra_cae */
                     ctx->cplx_estimation_trash_i += 8 * get_bits1(gb);  /* inter_cae */
                     ctx->cplx_estimation_trash_i += 8 * get_bits1(gb);  /* no_update */
-                    ctx->cplx_estimation_trash_i += 8 * get_bits1(gb);  /* upampling */
+                    ctx->cplx_estimation_trash_i += 8 * get_bits1(gb);  /* upsampling */
                 }
                 if (!get_bits1(gb)) {
                     ctx->cplx_estimation_trash_i += 8 * get_bits1(gb);  /* intra_blocks */
@@ -1899,7 +1909,7 @@ static int decode_vol_header(Mpeg4DecContext *ctx, GetBitContext *gb)
                     ctx->cplx_estimation_trash_p += 8 * get_bits1(gb);  /* inter4v_blocks */
                     ctx->cplx_estimation_trash_i += 8 * get_bits1(gb);  /* not coded blocks */
                 }
-                if (!check_marker(gb, "in complexity estimation part 1")) {
+                if (!check_marker(s->avctx, gb, "in complexity estimation part 1")) {
                     skip_bits_long(gb, pos - get_bits_count(gb));
                     goto no_cplx_est;
                 }
@@ -1917,7 +1927,7 @@ static int decode_vol_header(Mpeg4DecContext *ctx, GetBitContext *gb)
                     ctx->cplx_estimation_trash_p += 8 * get_bits1(gb);  /* halfpel2 */
                     ctx->cplx_estimation_trash_p += 8 * get_bits1(gb);  /* halfpel4 */
                 }
-                if (!check_marker(gb, "in complexity estimation part 2")) {
+                if (!check_marker(s->avctx, gb, "in complexity estimation part 2")) {
                     skip_bits_long(gb, pos - get_bits_count(gb));
                     goto no_cplx_est;
                 }
@@ -2021,7 +2031,7 @@ static int decode_user_data(Mpeg4DecContext *ctx, GetBitContext *gb)
         s->divx_packed  = e == 3 && last == 'p';
         if (s->divx_packed && !ctx->showed_packed_warning) {
             av_log(s->avctx, AV_LOG_WARNING,
-                   "Invalid and inefficient vfw-avi packed B frames detected\n");
+                   "Invalid and inefficient vfw-avi packed B-frames detected\n");
             ctx->showed_packed_warning = 1;
         }
     }
@@ -2094,7 +2104,7 @@ static int decode_vop_header(Mpeg4DecContext *ctx, GetBitContext *gb)
     while (get_bits1(gb) != 0)
         time_incr++;
 
-    check_marker(gb, "before time_increment");
+    check_marker(s->avctx, gb, "before time_increment");
 
     if (ctx->time_increment_bits == 0 ||
         !(show_bits(gb, ctx->time_increment_bits + 1) & 1)) {
@@ -2137,7 +2147,7 @@ static int decode_vop_header(Mpeg4DecContext *ctx, GetBitContext *gb)
         if (s->pp_time <= s->pb_time ||
             s->pp_time <= s->pp_time - s->pb_time ||
             s->pp_time <= 0) {
-            /* messed up order, maybe after seeking? skipping current b-frame */
+            /* messed up order, maybe after seeking? skipping current B-frame */
             return FRAME_SKIPPED;
         }
         ff_mpeg4_init_direct_mv(s);
@@ -2156,7 +2166,7 @@ static int decode_vop_header(Mpeg4DecContext *ctx, GetBitContext *gb)
         }
     }
 
-    check_marker(gb, "before vop_coded");
+    check_marker(s->avctx, gb, "before vop_coded");
 
     /* vop coded */
     if (get_bits1(gb) != 1) {
@@ -2236,7 +2246,7 @@ static int decode_vop_header(Mpeg4DecContext *ctx, GetBitContext *gb)
         s->chroma_qscale = s->qscale = get_bits(gb, s->quant_precision);
         if (s->qscale == 0) {
             av_log(s->avctx, AV_LOG_ERROR,
-                   "Error, header damaged or not MPEG4 header (qscale=0)\n");
+                   "Error, header damaged or not MPEG-4 header (qscale=0)\n");
             return -1;  // makes no sense to continue, as there is nothing left from the image then
         }
 
@@ -2244,7 +2254,7 @@ static int decode_vop_header(Mpeg4DecContext *ctx, GetBitContext *gb)
             s->f_code = get_bits(gb, 3);        /* fcode_for */
             if (s->f_code == 0) {
                 av_log(s->avctx, AV_LOG_ERROR,
-                       "Error, header damaged or not MPEG4 header (f_code=0)\n");
+                       "Error, header damaged or not MPEG-4 header (f_code=0)\n");
                 return -1;  // makes no sense to continue, as there is nothing left from the image then
             }
         } else
@@ -2284,7 +2294,7 @@ static int decode_vop_header(Mpeg4DecContext *ctx, GetBitContext *gb)
         }
     }
     /* detect buggy encoders which don't set the low_delay flag
-     * (divx4/xvid/opendivx). Note we cannot detect divx5 without b-frames
+     * (divx4/xvid/opendivx). Note we cannot detect divx5 without B-frames
      * easily (although it's buggy too) */
     if (s->vo_type == 0 && ctx->vol_control_parameters == 0 &&
         ctx->divx_version == -1 && s->picture_number == 0) {
@@ -2307,7 +2317,7 @@ static int decode_vop_header(Mpeg4DecContext *ctx, GetBitContext *gb)
 }
 
 /**
- * Decode mpeg4 headers.
+ * Decode MPEG-4 headers.
  * @return <0 if no VOP found (or a damaged one)
  *         FRAME_SKIPPED if a not coded VOP is found
  *         0 if a VOP is found
@@ -2490,7 +2500,7 @@ int ff_mpeg4_frame_end(AVCodecContext *avctx, const uint8_t *buf, int buf_size)
     Mpeg4DecContext *ctx = avctx->priv_data;
     MpegEncContext    *s = &ctx->m;
 
-    /* divx 5.01+ bistream reorder stuff */
+    /* divx 5.01+ bitstream reorder stuff */
     if (s->divx_packed) {
         int current_pos     = get_bits_count(&s->gb) >> 3;
         int startcode_found = 0;
@@ -2589,7 +2599,7 @@ static av_cold int decode_init(AVCodecContext *avctx)
     }
 
     s->h263_pred = 1;
-    s->low_delay = 0; /* default, might be overriden in the vol header during header parsing */
+    s->low_delay = 0; /* default, might be overridden in the vol header during header parsing */
     s->decode_mb = mpeg4_decode_mb;
     ctx->time_increment_bits = 4; /* default value for broken headers */
 
@@ -2598,25 +2608,6 @@ static av_cold int decode_init(AVCodecContext *avctx)
 
     return 0;
 }
-
-static const AVProfile mpeg4_video_profiles[] = {
-    { FF_PROFILE_MPEG4_SIMPLE,                    "Simple Profile" },
-    { FF_PROFILE_MPEG4_SIMPLE_SCALABLE,           "Simple Scalable Profile" },
-    { FF_PROFILE_MPEG4_CORE,                      "Core Profile" },
-    { FF_PROFILE_MPEG4_MAIN,                      "Main Profile" },
-    { FF_PROFILE_MPEG4_N_BIT,                     "N-bit Profile" },
-    { FF_PROFILE_MPEG4_SCALABLE_TEXTURE,          "Scalable Texture Profile" },
-    { FF_PROFILE_MPEG4_SIMPLE_FACE_ANIMATION,     "Simple Face Animation Profile" },
-    { FF_PROFILE_MPEG4_BASIC_ANIMATED_TEXTURE,    "Basic Animated Texture Profile" },
-    { FF_PROFILE_MPEG4_HYBRID,                    "Hybrid Profile" },
-    { FF_PROFILE_MPEG4_ADVANCED_REAL_TIME,        "Advanced Real Time Simple Profile" },
-    { FF_PROFILE_MPEG4_CORE_SCALABLE,             "Code Scalable Profile" },
-    { FF_PROFILE_MPEG4_ADVANCED_CODING,           "Advanced Coding Profile" },
-    { FF_PROFILE_MPEG4_ADVANCED_CORE,             "Advanced Core Profile" },
-    { FF_PROFILE_MPEG4_ADVANCED_SCALABLE_TEXTURE, "Advanced Scalable Texture Profile" },
-    { FF_PROFILE_MPEG4_SIMPLE_STUDIO,             "Simple Studio Profile" },
-    { FF_PROFILE_MPEG4_ADVANCED_SIMPLE,           "Advanced Simple Profile" },
-};
 
 AVCodec ff_mpeg4_decoder = {
     .name                  = "mpeg4",
@@ -2632,6 +2623,6 @@ AVCodec ff_mpeg4_decoder = {
                              AV_CODEC_CAP_FRAME_THREADS,
     .flush                 = ff_mpeg_flush,
     .pix_fmts              = ff_h263_hwaccel_pixfmt_list_420,
-    .profiles              = NULL_IF_CONFIG_SMALL(mpeg4_video_profiles),
+    .profiles              = NULL_IF_CONFIG_SMALL(ff_mpeg4_video_profiles),
     .update_thread_context = ONLY_IF_THREADS_ENABLED(mpeg4_update_thread_context),
 };

@@ -53,13 +53,9 @@ typedef struct MP3DecContext {
 static int mp3_read_probe(AVProbeData *p)
 {
     int max_frames, first_frames = 0;
-    int fsize, frames, sample_rate;
+    int frames, ret;
     uint32_t header;
     uint8_t *buf, *buf0, *buf2, *end;
-    AVCodecContext *avctx = avcodec_alloc_context3(NULL);
-
-    if (!avctx)
-        return AVERROR(ENOMEM);
 
     buf0 = p->buf;
     end = p->buf + p->buf_size - sizeof(uint32_t);
@@ -73,19 +69,18 @@ static int mp3_read_probe(AVProbeData *p)
         buf2 = buf;
 
         for(frames = 0; buf2 < end; frames++) {
+            MPADecodeHeader h;
+
             header = AV_RB32(buf2);
-            fsize = avpriv_mpa_decode_header(avctx, header, &sample_rate,
-                                             &sample_rate, &sample_rate,
-                                             &sample_rate);
-            if(fsize < 0)
+            ret = avpriv_mpegaudio_decode_header(&h, header);
+            if (ret != 0)
                 break;
-            buf2 += fsize;
+            buf2 += h.frame_size;
         }
         max_frames = FFMAX(max_frames, frames);
         if(buf == buf0)
             first_frames= frames;
     }
-    avcodec_free_context(&avctx);
     // keep this in sync with ac3 probe, both need to avoid
     // issues with MPEG-files!
     if (first_frames >= 10)
@@ -148,7 +143,7 @@ static void mp3_parse_info_tag(AVFormatContext *s, AVStream *st,
 #define MIDDLE_BITS(k, m, n) LAST_BITS((k) >> (m), ((n) - (m)))
 
     uint16_t crc;
-    uint32_t v;
+    uint32_t v, delays;
 
     char version[10];
 
@@ -156,7 +151,7 @@ static void mp3_parse_info_tag(AVFormatContext *s, AVStream *st,
     int32_t  r_gain = INT32_MIN, a_gain = INT32_MIN;
 
     MP3DecContext *mp3 = s->priv_data;
-    const int64_t xing_offtbl[2][2] = {{32, 17}, {17,9}};
+    static const int64_t xing_offtbl[2][2] = { { 32, 17 }, { 17, 9 } };
 
     /* Check for Xing / Info tag */
     avio_skip(s->pb, xing_offtbl[c->lsf == 1][c->nb_channels == 1]);
@@ -220,7 +215,9 @@ static void mp3_parse_info_tag(AVFormatContext *s, AVStream *st,
     avio_r8(s->pb);
 
     /* Encoder delays */
-    avio_rb24(s->pb);
+    delays = avio_rb24(s->pb);
+    st->codecpar->initial_padding  = delays >> 12;
+    st->codecpar->trailing_padding = delays & ((1 << 12) - 1);
 
     /* Misc */
     avio_r8(s->pb);
@@ -275,14 +272,16 @@ static int mp3_parse_vbr_tags(AVFormatContext *s, AVStream *st, int64_t base)
     MPADecodeHeader c;
     int vbrtag_size = 0;
     MP3DecContext *mp3 = s->priv_data;
+    int ret;
 
     ffio_init_checksum(s->pb, ff_crcA001_update, 0);
 
     v = avio_rb32(s->pb);
-    if(ff_mpa_check_header(v) < 0)
-      return -1;
 
-    if (avpriv_mpegaudio_decode_header(&c, v) == 0)
+    ret = avpriv_mpegaudio_decode_header(&c, v);
+    if (ret < 0)
+        return ret;
+    else if (ret == 0)
         vbrtag_size = c.frame_size;
     if(c.layer != 3)
         return -1;
@@ -305,7 +304,7 @@ static int mp3_parse_vbr_tags(AVFormatContext *s, AVStream *st, int64_t base)
         st->duration = av_rescale_q(mp3->frames, (AVRational){spf, c.sample_rate},
                                     st->time_base);
     if (mp3->size && mp3->frames && !mp3->is_cbr)
-        st->codec->bit_rate = av_rescale(mp3->size, 8 * c.sample_rate, mp3->frames * (int64_t)spf);
+        st->codecpar->bit_rate = av_rescale(mp3->size, 8 * c.sample_rate, mp3->frames * (int64_t)spf);
 
     return 0;
 }
@@ -320,8 +319,8 @@ static int mp3_read_header(AVFormatContext *s)
     if (!st)
         return AVERROR(ENOMEM);
 
-    st->codec->codec_type = AVMEDIA_TYPE_AUDIO;
-    st->codec->codec_id = AV_CODEC_ID_MP3;
+    st->codecpar->codec_type = AVMEDIA_TYPE_AUDIO;
+    st->codecpar->codec_id = AV_CODEC_ID_MP3;
     st->need_parsing = AVSTREAM_PARSE_FULL;
     st->start_time = 0;
 
@@ -388,8 +387,8 @@ static int check(AVIOContext *pb, int64_t pos, int64_t *out_pos)
 
         header = avio_rb32(pb);
 
-        if (ff_mpa_check_header(header) < 0 ||
-            avpriv_mpegaudio_decode_header(&mh, header))
+
+        if (avpriv_mpegaudio_decode_header(&mh, header))
             break;
         out_pos[i] = off;
     }

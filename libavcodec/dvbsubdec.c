@@ -34,121 +34,6 @@
 
 #define cm (ff_crop_tab + MAX_NEG_CROP)
 
-#ifdef DEBUG
-#if 0
-static void png_save(const char *filename, uint8_t *bitmap, int w, int h,
-                     uint32_t *rgba_palette)
-{
-    int x, y, v;
-    FILE *f;
-    char fname[40], fname2[40];
-    char command[1024];
-
-    snprintf(fname, 40, "%s.ppm", filename);
-
-    f = fopen(fname, "w");
-    if (!f) {
-        perror(fname);
-        return;
-    }
-    fprintf(f, "P6\n"
-            "%d %d\n"
-            "%d\n",
-            w, h, 255);
-    for(y = 0; y < h; y++) {
-        for(x = 0; x < w; x++) {
-            v = rgba_palette[bitmap[y * w + x]];
-            putc((v >> 16) & 0xff, f);
-            putc((v >> 8) & 0xff, f);
-            putc((v >> 0) & 0xff, f);
-        }
-    }
-    fclose(f);
-
-
-    snprintf(fname2, 40, "%s-a.pgm", filename);
-
-    f = fopen(fname2, "w");
-    if (!f) {
-        perror(fname2);
-        return;
-    }
-    fprintf(f, "P5\n"
-            "%d %d\n"
-            "%d\n",
-            w, h, 255);
-    for(y = 0; y < h; y++) {
-        for(x = 0; x < w; x++) {
-            v = rgba_palette[bitmap[y * w + x]];
-            putc((v >> 24) & 0xff, f);
-        }
-    }
-    fclose(f);
-
-    snprintf(command, 1024, "pnmtopng -alpha %s %s > %s.png 2> /dev/null", fname2, fname, filename);
-    system(command);
-
-    snprintf(command, 1024, "rm %s %s", fname, fname2);
-    system(command);
-}
-#endif
-
-static void png_save2(const char *filename, uint32_t *bitmap, int w, int h)
-{
-    int x, y, v;
-    FILE *f;
-    char fname[40], fname2[40];
-    char command[1024];
-
-    snprintf(fname, sizeof(fname), "%s.ppm", filename);
-
-    f = fopen(fname, "w");
-    if (!f) {
-        perror(fname);
-        return;
-    }
-    fprintf(f, "P6\n"
-            "%d %d\n"
-            "%d\n",
-            w, h, 255);
-    for(y = 0; y < h; y++) {
-        for(x = 0; x < w; x++) {
-            v = bitmap[y * w + x];
-            putc((v >> 16) & 0xff, f);
-            putc((v >> 8) & 0xff, f);
-            putc((v >> 0) & 0xff, f);
-        }
-    }
-    fclose(f);
-
-
-    snprintf(fname2, sizeof(fname2), "%s-a.pgm", filename);
-
-    f = fopen(fname2, "w");
-    if (!f) {
-        perror(fname2);
-        return;
-    }
-    fprintf(f, "P5\n"
-            "%d %d\n"
-            "%d\n",
-            w, h, 255);
-    for(y = 0; y < h; y++) {
-        for(x = 0; x < w; x++) {
-            v = bitmap[y * w + x];
-            putc((v >> 24) & 0xff, f);
-        }
-    }
-    fclose(f);
-
-    snprintf(command, sizeof(command), "pnmtopng -alpha %s %s > %s.png 2> /dev/null", fname2, fname, filename);
-    system(command);
-
-    snprintf(command, sizeof(command), "rm %s %s", fname, fname2);
-    system(command);
-}
-#endif
-
 #define RGBA(r,g,b,a) (((unsigned)(a) << 24) | ((r) << 16) | ((g) << 8) | (b))
 
 typedef struct DVBSubCLUT {
@@ -344,7 +229,7 @@ static void delete_state(DVBSubContext *ctx)
 
     /* Should already be null */
     if (ctx->object_list)
-        av_log(0, AV_LOG_ERROR, "Memory deallocation error!\n");
+        av_log(NULL, AV_LOG_ERROR, "Memory deallocation error!\n");
 }
 
 static av_cold int dvbsub_init_decoder(AVCodecContext *avctx)
@@ -539,7 +424,7 @@ static int dvbsub_read_2bit_string(uint8_t *destbuf, int dbuf_len,
     }
 
     if (get_bits(&gb, 6))
-        av_log(0, AV_LOG_ERROR, "DVBSub error: line overflow\n");
+        av_log(NULL, AV_LOG_ERROR, "DVBSub error: line overflow\n");
 
     (*srcbuf) += (get_bits_count(&gb) + 7) >> 3;
 
@@ -660,7 +545,7 @@ static int dvbsub_read_4bit_string(uint8_t *destbuf, int dbuf_len,
     }
 
     if (get_bits(&gb, 8))
-        av_log(0, AV_LOG_ERROR, "DVBSub error: line overflow\n");
+        av_log(NULL, AV_LOG_ERROR, "DVBSub error: line overflow\n");
 
     (*srcbuf) += (get_bits_count(&gb) + 7) >> 3;
 
@@ -712,7 +597,7 @@ static int dvbsub_read_8bit_string(uint8_t *destbuf, int dbuf_len,
     }
 
     if (*(*srcbuf)++)
-        av_log(0, AV_LOG_ERROR, "DVBSub error: line overflow\n");
+        av_log(NULL, AV_LOG_ERROR, "DVBSub error: line overflow\n");
 
     return pixels_read;
 }
@@ -1175,6 +1060,67 @@ static int dvbsub_parse_page_segment(AVCodecContext *avctx,
 
 
 #ifdef DEBUG
+static void png_save(const char *filename, uint32_t *bitmap, int w, int h)
+{
+    int x, y, v;
+    FILE *f;
+    char fname[40], fname2[40];
+    char command[1024];
+
+    snprintf(fname, sizeof(fname), "%s.ppm", filename);
+
+    f = fopen(fname, "w");
+    if (!f) {
+        perror(fname);
+        return;
+    }
+    fprintf(f, "P6\n"
+            "%d %d\n"
+            "%d\n",
+            w, h, 255);
+    for(y = 0; y < h; y++) {
+        for(x = 0; x < w; x++) {
+            v = bitmap[y * w + x];
+            putc((v >> 16) & 0xff, f);
+            putc((v >> 8) & 0xff, f);
+            putc((v >> 0) & 0xff, f);
+        }
+    }
+    fclose(f);
+
+
+    snprintf(fname2, sizeof(fname2), "%s-a.pgm", filename);
+
+    f = fopen(fname2, "w");
+    if (!f) {
+        perror(fname2);
+        return;
+    }
+    fprintf(f, "P5\n"
+            "%d %d\n"
+            "%d\n",
+            w, h, 255);
+    for(y = 0; y < h; y++) {
+        for(x = 0; x < w; x++) {
+            v = bitmap[y * w + x];
+            putc((v >> 24) & 0xff, f);
+        }
+    }
+    fclose(f);
+
+    snprintf(command, sizeof(command), "pnmtopng -alpha %s %s > %s.png 2> /dev/null", fname2, fname, filename);
+    if (system(command) != 0) {
+        printf("Error running pnmtopng\n");
+        return;
+    }
+
+    snprintf(command, sizeof(command), "rm %s %s", fname, fname2);
+    if (system(command) != 0) {
+        printf("Error removing %s and %s\n", fname, fname2);
+        return;
+    }
+}
+
 static int save_display_set(DVBSubContext *ctx)
 {
     DVBSubRegion *region;
@@ -1262,7 +1208,7 @@ static int save_display_set(DVBSubContext *ctx)
 
         snprintf(filename, sizeof(filename), "dvbs.%d", fileno_index);
 
-        png_save2(filename, pbuf, width, height);
+        png_save(filename, pbuf, width, height);
 
         av_free(pbuf);
     }
@@ -1270,7 +1216,7 @@ static int save_display_set(DVBSubContext *ctx)
     fileno_index++;
     return 0;
 }
-#endif
+#endif /* DEBUG */
 
 static int dvbsub_parse_display_definition_segment(AVCodecContext *avctx,
                                                    const uint8_t *buf,
@@ -1350,7 +1296,6 @@ static int dvbsub_display_end_segment(AVCodecContext *avctx, const uint8_t *buf,
     i = 0;
 
     for (display = ctx->display_list; display; display = display->next) {
-        int j;
         region = get_region(ctx, display->region_id);
         rect = sub->rects[i];
 
@@ -1400,10 +1345,13 @@ static int dvbsub_display_end_segment(AVCodecContext *avctx, const uint8_t *buf,
 
 #if FF_API_AVPICTURE
 FF_DISABLE_DEPRECATION_WARNINGS
+{
+        int j;
         for (j = 0; j < 4; j++) {
             rect->pict.data[j] = rect->data[j];
             rect->pict.linesize[j] = rect->linesize[j];
         }
+}
 FF_ENABLE_DEPRECATION_WARNINGS
 #endif
 

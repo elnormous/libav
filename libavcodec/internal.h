@@ -57,13 +57,13 @@
 #ifdef DEBUG
 #   define ff_dlog(ctx, ...) av_log(ctx, AV_LOG_DEBUG, __VA_ARGS__)
 #else
-#   define ff_dlog(ctx, ...) while(0)
+#   define ff_dlog(ctx, ...) do { } while (0)
 #endif
 
 #ifdef TRACE
 #   define ff_tlog(ctx, ...) av_log(ctx, AV_LOG_TRACE, __VA_ARGS__)
 #else
-#   define ff_tlog(ctx, ...) while(0)
+#   define ff_tlog(ctx, ...) do { } while (0)
 #endif
 
 
@@ -140,6 +140,19 @@ typedef struct AVCodecInternal {
      * hwaccel-specific private data
      */
     void *hwaccel_priv_data;
+
+    /**
+     * checks API usage: after codec draining, flush is required to resume operation
+     */
+    int draining;
+
+    /**
+     * buffers for using new encode/decode API through legacy API
+     */
+    AVPacket *buffer_pkt;
+    int buffer_pkt_valid; // encoding: packet without data can be valid
+    AVFrame *buffer_frame;
+    int draining_done;
 } AVCodecInternal;
 
 struct AVCodecDefault {
@@ -239,5 +252,10 @@ int ff_get_format(AVCodecContext *avctx, const enum AVPixelFormat *fmt);
  * Set various frame properties from the codec context / packet data.
  */
 int ff_decode_frame_props(AVCodecContext *avctx, AVFrame *frame);
+
+/**
+ * Add a CPB properties side data to an encoding context.
+ */
+AVCPBProperties *ff_add_cpb_side_data(AVCodecContext *avctx);
 
 #endif /* AVCODEC_INTERNAL_H */

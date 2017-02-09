@@ -86,6 +86,7 @@ static av_cold int movie_init(AVFilterContext *ctx)
 {
     MovieContext *movie = ctx->priv;
     AVInputFormat *iformat = NULL;
+    AVStream *st;
     AVCodec *codec;
     int ret;
     int64_t timestamp;
@@ -132,17 +133,25 @@ static av_cold int movie_init(AVFilterContext *ctx)
         return ret;
     }
     movie->stream_index = ret;
-    movie->codec_ctx = movie->format_ctx->streams[movie->stream_index]->codec;
+    st = movie->format_ctx->streams[movie->stream_index];
 
     /*
      * So now we've got a pointer to the so-called codec context for our video
      * stream, but we still have to find the actual codec and open it.
      */
-    codec = avcodec_find_decoder(movie->codec_ctx->codec_id);
+    codec = avcodec_find_decoder(st->codecpar->codec_id);
     if (!codec) {
         av_log(ctx, AV_LOG_ERROR, "Failed to find any codec\n");
         return AVERROR(EINVAL);
     }
+
+    movie->codec_ctx = avcodec_alloc_context3(codec);
+    if (!movie->codec_ctx)
+        return AVERROR(ENOMEM);
+
+    ret = avcodec_parameters_to_context(movie->codec_ctx, st->codecpar);
+    if (ret < 0)
+        return ret;
 
     movie->codec_ctx->refcounted_frames = 1;
 
@@ -174,8 +183,7 @@ static av_cold void uninit(AVFilterContext *ctx)
 {
     MovieContext *movie = ctx->priv;
 
-    if (movie->codec_ctx)
-        avcodec_close(movie->codec_ctx);
+    avcodec_free_context(&movie->codec_ctx);
     if (movie->format_ctx)
         avformat_close_input(&movie->format_ctx);
     av_frame_free(&movie->frame);
@@ -220,8 +228,6 @@ static int movie_get_frame(AVFilterLink *outlink)
             avcodec_decode_video2(movie->codec_ctx, movie->frame, &frame_decoded, &pkt);
 
             if (frame_decoded) {
-                if (movie->frame->pkt_pts != AV_NOPTS_VALUE)
-                    movie->frame->pts = movie->frame->pkt_pts;
                 av_log(outlink->src, AV_LOG_TRACE,
                         "movie_get_frame(): file:'%s' pts:%"PRId64" time:%f aspect:%d/%d\n",
                         movie->file_name, movie->frame->pts,

@@ -65,6 +65,7 @@ extern const int ff_ut_pred_order[5];
 extern const int ff_ut_rgb_order[4];
 
 typedef struct UtvideoContext {
+    const AVClass *class;
     AVCodecContext *avctx;
     BswapDSPContext bdsp;
     HuffYUVEncDSPContext hdsp;
@@ -76,7 +77,7 @@ typedef struct UtvideoContext {
     int      interlaced;
     int      frame_pred;
 
-    int      slice_stride;
+    ptrdiff_t slice_stride;
     uint8_t *slice_bits, *slice_buffer[4];
     int      slice_bits_size;
 } UtvideoContext;

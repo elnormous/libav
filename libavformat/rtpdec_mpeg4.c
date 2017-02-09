@@ -22,7 +22,7 @@
 
 /**
  * @file
- * @brief MPEG4 / RTP Code
+ * @brief MPEG-4 / RTP Code
  * @author Fabrice Bellard
  * @author Romain Degez
  */
@@ -97,16 +97,16 @@ static void close_context(PayloadContext *data)
     av_free(data->mode);
 }
 
-static int parse_fmtp_config(AVCodecContext *codec, const char *value)
+static int parse_fmtp_config(AVCodecParameters *par, const char *value)
 {
     /* decode the hexa encoded parameter */
     int len = ff_hex_to_data(NULL, value);
-    av_free(codec->extradata);
-    codec->extradata = av_mallocz(len + AV_INPUT_BUFFER_PADDING_SIZE);
-    if (!codec->extradata)
+    av_free(par->extradata);
+    par->extradata = av_mallocz(len + AV_INPUT_BUFFER_PADDING_SIZE);
+    if (!par->extradata)
         return AVERROR(ENOMEM);
-    codec->extradata_size = len;
-    ff_hex_to_data(codec->extradata, value);
+    par->extradata_size = len;
+    ff_hex_to_data(par->extradata, value);
     return 0;
 }
 
@@ -136,7 +136,7 @@ static int rtp_parse_mp4_au(PayloadContext *data, const uint8_t *buf, int len)
 
     init_get_bits(&getbitcontext, buf, data->au_headers_length_bytes * 8);
 
-    /* XXX: Wrong if optionnal additional sections are present (cts, dts etc...) */
+    /* XXX: Wrong if optional additional sections are present (cts, dts etc...) */
     au_header_size = data->sizelength + data->indexlength;
     if (au_header_size <= 0 || (au_headers_length % au_header_size != 0))
         return -1;
@@ -275,26 +275,37 @@ static int parse_fmtp(AVFormatContext *s,
                       AVStream *stream, PayloadContext *data,
                       const char *attr, const char *value)
 {
-    AVCodecContext *codec = stream->codec;
+    AVCodecParameters *par = stream->codecpar;
     int res, i;
 
     if (!strcmp(attr, "config")) {
-        res = parse_fmtp_config(codec, value);
+        res = parse_fmtp_config(par, value);
 
         if (res < 0)
             return res;
     }
 
-    if (codec->codec_id == AV_CODEC_ID_AAC) {
+    if (par->codec_id == AV_CODEC_ID_AAC) {
         /* Looking for a known attribute */
         for (i = 0; attr_names[i].str; ++i) {
             if (!av_strcasecmp(attr, attr_names[i].str)) {
                 if (attr_names[i].type == ATTR_NAME_TYPE_INT) {
+                    int val = atoi(value);
+                    if (val > 32) {
+                        av_log(s, AV_LOG_ERROR,
+                               "The %s field size is invalid (%d).",
+                               attr, val);
+                        return AVERROR_INVALIDDATA;
+                    }
                     *(int *)((char *)data+
-                        attr_names[i].offset) = atoi(value);
-                } else if (attr_names[i].type == ATTR_NAME_TYPE_STR)
+                        attr_names[i].offset) = val;
+                } else if (attr_names[i].type == ATTR_NAME_TYPE_STR) {
+                    char *val = av_strdup(value);
+                    if (!val)
+                        return AVERROR(ENOMEM);
                     *(char **)((char *)data+
-                        attr_names[i].offset) = av_strdup(value);
+                        attr_names[i].offset) = val;
+                }
             }
         }
     }

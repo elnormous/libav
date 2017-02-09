@@ -40,6 +40,7 @@
 enum LoadPlugin {
     LOAD_PLUGIN_NONE,
     LOAD_PLUGIN_HEVC_SW,
+    LOAD_PLUGIN_HEVC_HW,
 };
 
 typedef struct QSVH2645Context {
@@ -49,13 +50,11 @@ typedef struct QSVH2645Context {
     int load_plugin;
 
     // the filter for converting to Annex B
-    AVBitStreamFilterContext *bsf;
+    AVBSFContext *bsf;
 
     AVFifoBuffer *packet_fifo;
 
-    AVPacket input_ref;
     AVPacket pkt_filtered;
-    uint8_t *filtered_data;
 } QSVH2645Context;
 
 static void qsv_clear_buffers(QSVH2645Context *s)
@@ -66,10 +65,9 @@ static void qsv_clear_buffers(QSVH2645Context *s)
         av_packet_unref(&pkt);
     }
 
-    if (s->filtered_data != s->input_ref.data)
-        av_freep(&s->filtered_data);
-    s->filtered_data = NULL;
-    av_packet_unref(&s->input_ref);
+    av_bsf_free(&s->bsf);
+
+    av_packet_unref(&s->pkt_filtered);
 }
 
 static av_cold int qsv_decode_close(AVCodecContext *avctx)
@@ -82,8 +80,6 @@ static av_cold int qsv_decode_close(AVCodecContext *avctx)
 
     av_fifo_free(s->packet_fifo);
 
-    av_bitstream_filter_close(s->bsf);
-
     return 0;
 }
 
@@ -93,7 +89,8 @@ static av_cold int qsv_decode_init(AVCodecContext *avctx)
     int ret;
 
     if (avctx->codec_id == AV_CODEC_ID_HEVC && s->load_plugin != LOAD_PLUGIN_NONE) {
-        static const char *uid_hevcenc_sw = "15dd936825ad475ea34e35f3f54217a6";
+        static const char *uid_hevcdec_sw = "15dd936825ad475ea34e35f3f54217a6";
+        static const char *uid_hevcdec_hw = "33a61c0b4c27454ca8d85dde757c6f8e";
 
         if (s->qsv.load_plugins[0]) {
             av_log(avctx, AV_LOG_WARNING,
@@ -101,7 +98,11 @@ static av_cold int qsv_decode_init(AVCodecContext *avctx)
                    "The load_plugin value will be ignored.\n");
         } else {
             av_freep(&s->qsv.load_plugins);
-            s->qsv.load_plugins = av_strdup(uid_hevcenc_sw);
+
+            if (s->load_plugin == LOAD_PLUGIN_HEVC_SW)
+                s->qsv.load_plugins = av_strdup(uid_hevcdec_sw);
+            else
+                s->qsv.load_plugins = av_strdup(uid_hevcdec_hw);
             if (!s->qsv.load_plugins)
                 return AVERROR(ENOMEM);
         }
@@ -113,20 +114,40 @@ static av_cold int qsv_decode_init(AVCodecContext *avctx)
         goto fail;
     }
 
-    if (avctx->codec_id == AV_CODEC_ID_H264)
-        s->bsf = av_bitstream_filter_init("h264_mp4toannexb");
-    else
-        s->bsf = av_bitstream_filter_init("hevc_mp4toannexb");
-    if (!s->bsf) {
-        ret = AVERROR(ENOMEM);
-        goto fail;
-    }
-
-    s->qsv.iopattern = MFX_IOPATTERN_OUT_SYSTEM_MEMORY;
-
     return 0;
 fail:
     qsv_decode_close(avctx);
+    return ret;
+}
+
+static int qsv_init_bsf(AVCodecContext *avctx, QSVH2645Context *s)
+{
+    const char *filter_name = avctx->codec_id == AV_CODEC_ID_HEVC ?
+                              "hevc_mp4toannexb" : "h264_mp4toannexb";
+    const AVBitStreamFilter *filter;
+    int ret;
+
+    if (s->bsf)
+        return 0;
+
+    filter = av_bsf_get_by_name(filter_name);
+    if (!filter)
+        return AVERROR_BUG;
+
+    ret = av_bsf_alloc(filter, &s->bsf);
+    if (ret < 0)
+        return ret;
+
+    ret = avcodec_parameters_from_context(s->bsf->par_in, avctx);
+    if (ret < 0)
+        return ret;
+
+    s->bsf->time_base_in = avctx->time_base;
+
+    ret = av_bsf_init(s->bsf);
+    if (ret < 0)
+        return ret;
+
     return ret;
 }
 
@@ -136,6 +157,11 @@ static int qsv_decode_frame(AVCodecContext *avctx, void *data,
     QSVH2645Context *s = avctx->priv_data;
     AVFrame *frame    = data;
     int ret;
+
+    /* make sure the bitstream filter is initialized */
+    ret = qsv_init_bsf(avctx, s);
+    if (ret < 0)
+        return ret;
 
     /* buffer the input packet */
     if (avpkt->size) {
@@ -158,28 +184,26 @@ static int qsv_decode_frame(AVCodecContext *avctx, void *data,
     while (!*got_frame) {
         /* prepare the input data -- convert to Annex B if needed */
         if (s->pkt_filtered.size <= 0) {
-            int size;
+            AVPacket input_ref;
 
             /* no more data */
             if (av_fifo_size(s->packet_fifo) < sizeof(AVPacket))
                 return avpkt->size ? avpkt->size : ff_qsv_process_data(avctx, &s->qsv, frame, got_frame, avpkt);
 
-            if (s->filtered_data != s->input_ref.data)
-                av_freep(&s->filtered_data);
-            s->filtered_data = NULL;
-            av_packet_unref(&s->input_ref);
+            av_packet_unref(&s->pkt_filtered);
 
-            av_fifo_generic_read(s->packet_fifo, &s->input_ref, sizeof(s->input_ref), NULL);
-            ret = av_bitstream_filter_filter(s->bsf, avctx, NULL,
-                                             &s->filtered_data, &size,
-                                             s->input_ref.data, s->input_ref.size, 0);
+            av_fifo_generic_read(s->packet_fifo, &input_ref, sizeof(input_ref), NULL);
+            ret = av_bsf_send_packet(s->bsf, &input_ref);
             if (ret < 0) {
-                s->filtered_data = s->input_ref.data;
-                size             = s->input_ref.size;
+                av_packet_unref(&input_ref);
+                return ret;
             }
-            s->pkt_filtered      = s->input_ref;
-            s->pkt_filtered.data = s->filtered_data;
-            s->pkt_filtered.size = size;
+
+            ret = av_bsf_receive_packet(s->bsf, &s->pkt_filtered);
+            if (ret < 0)
+                av_packet_move_ref(&s->pkt_filtered, &input_ref);
+            else
+                av_packet_unref(&input_ref);
         }
 
         ret = ff_qsv_process_data(avctx, &s->qsv, frame, got_frame, &s->pkt_filtered);
@@ -215,9 +239,10 @@ AVHWAccel ff_hevc_qsv_hwaccel = {
 static const AVOption hevc_options[] = {
     { "async_depth", "Internal parallelization depth, the higher the value the higher the latency.", OFFSET(qsv.async_depth), AV_OPT_TYPE_INT, { .i64 = ASYNC_DEPTH_DEFAULT }, 0, INT_MAX, VD },
 
-    { "load_plugin", "A user plugin to load in an internal session", OFFSET(load_plugin), AV_OPT_TYPE_INT, { .i64 = LOAD_PLUGIN_HEVC_SW }, LOAD_PLUGIN_NONE, LOAD_PLUGIN_HEVC_SW, VD, "load_plugin" },
+    { "load_plugin", "A user plugin to load in an internal session", OFFSET(load_plugin), AV_OPT_TYPE_INT, { .i64 = LOAD_PLUGIN_HEVC_SW }, LOAD_PLUGIN_NONE, LOAD_PLUGIN_HEVC_HW, VD, "load_plugin" },
     { "none",     NULL, 0, AV_OPT_TYPE_CONST, { .i64 = LOAD_PLUGIN_NONE },    0, 0, VD, "load_plugin" },
     { "hevc_sw",  NULL, 0, AV_OPT_TYPE_CONST, { .i64 = LOAD_PLUGIN_HEVC_SW }, 0, 0, VD, "load_plugin" },
+    { "hevc_hw",  NULL, 0, AV_OPT_TYPE_CONST, { .i64 = LOAD_PLUGIN_HEVC_HW }, 0, 0, VD, "load_plugin" },
 
     { "load_plugins", "A :-separate list of hexadecimal plugin UIDs to load in an internal session",
         OFFSET(qsv.load_plugins), AV_OPT_TYPE_STRING, { .str = "" }, 0, 0, VD },
@@ -244,6 +269,7 @@ AVCodec ff_hevc_qsv_decoder = {
     .capabilities   = AV_CODEC_CAP_DELAY | AV_CODEC_CAP_DR1,
     .priv_class     = &hevc_class,
     .pix_fmts       = (const enum AVPixelFormat[]){ AV_PIX_FMT_NV12,
+                                                    AV_PIX_FMT_P010,
                                                     AV_PIX_FMT_QSV,
                                                     AV_PIX_FMT_NONE },
 };
@@ -282,6 +308,7 @@ AVCodec ff_h264_qsv_decoder = {
     .capabilities   = AV_CODEC_CAP_DELAY | AV_CODEC_CAP_DR1,
     .priv_class     = &class,
     .pix_fmts       = (const enum AVPixelFormat[]){ AV_PIX_FMT_NV12,
+                                                    AV_PIX_FMT_P010,
                                                     AV_PIX_FMT_QSV,
                                                     AV_PIX_FMT_NONE },
 };

@@ -36,7 +36,7 @@
 #include "pixblockdsp.h"
 #include "dnxhdenc.h"
 
-// The largest value that will not lead to overflow for 10bit samples.
+// The largest value that will not lead to overflow for 10-bit samples.
 #define DNX10BIT_QMAT_SHIFT 18
 #define RC_VARIANCE 1 // use variance or ssd for fast rc
 #define LAMBDA_FRAC_BITS 10
@@ -289,14 +289,15 @@ static av_cold int dnxhd_encode_init(AVCodecContext *avctx)
         break;
     default:
         av_log(avctx, AV_LOG_ERROR,
-               "pixel format is incompatible with DNxHD\n");
+               "Pixel format is incompatible with DNxHD, use yuv422p or yuv422p10.\n");
         return AVERROR(EINVAL);
     }
 
     ctx->cid = ff_dnxhd_find_cid(avctx, bit_depth);
     if (!ctx->cid) {
         av_log(avctx, AV_LOG_ERROR,
-               "video parameters incompatible with DNxHD\n");
+               "Video parameters incompatible with DNxHD, available CIDs:\n");
+        ff_dnxhd_list_cid(avctx);
         return AVERROR(EINVAL);
     }
     av_log(avctx, AV_LOG_DEBUG, "cid %d\n", ctx->cid);
@@ -397,7 +398,7 @@ fail:  // for FF_ALLOCZ_OR_GOTO
 static int dnxhd_write_header(AVCodecContext *avctx, uint8_t *buf)
 {
     DNXHDEncContext *ctx = avctx->priv_data;
-    const uint8_t header_prefix[5] = { 0x00, 0x00, 0x02, 0x80, 0x01 };
+    static const uint8_t header_prefix[5] = { 0x00, 0x00, 0x02, 0x80, 0x01 };
 
     memset(buf, 0, 640);
 
@@ -750,7 +751,7 @@ static int dnxhd_mb_var_thread(AVCodecContext *avctx, void *arg,
             ctx->mb_cmp[mb].mb    = mb;
         }
     } else { // 10-bit
-        int const linesize = ctx->m.linesize >> 1;
+        const int linesize = ctx->m.linesize >> 1;
         for (mb_x = 0; mb_x < ctx->m.mb_width; ++mb_x) {
             uint16_t *pix = (uint16_t *)ctx->thread[0]->src[0] +
                             ((mb_y << 4) * linesize) + (mb_x << 4);
@@ -763,7 +764,7 @@ static int dnxhd_mb_var_thread(AVCodecContext *avctx, void *arg,
             for (i = 0; i < 16; ++i) {
                 for (j = 0; j < 16; ++j) {
                     // Turn 16-bit pixels into 10-bit ones.
-                    int const sample = (unsigned) pix[j] >> 6;
+                    const int sample = (unsigned) pix[j] >> 6;
                     sum   += sample;
                     sqsum += sample * sample;
                     // 2^10 * 2^10 * 16 * 16 = 2^28, which is less than INT_MAX
@@ -821,9 +822,6 @@ static int dnxhd_encode_rdo(AVCodecContext *avctx, DNXHDEncContext *ctx)
             if (bits > ctx->frame_bits)
                 break;
         }
-        // ff_dlog(ctx->m.avctx,
-        //         "lambda %d, up %u, down %u, bits %d, frame %d\n",
-        //         lambda, last_higher, last_lower, bits, ctx->frame_bits);
         if (end) {
             if (bits > ctx->frame_bits)
                 return AVERROR(EINVAL);
@@ -852,7 +850,6 @@ static int dnxhd_encode_rdo(AVCodecContext *avctx, DNXHDEncContext *ctx)
             down_step = 1<<LAMBDA_FRAC_BITS;
         }
     }
-    //ff_dlog(ctx->m.avctx, "out lambda %d\n", lambda);
     ctx->lambda = lambda;
     return 0;
 }
@@ -881,10 +878,6 @@ static int dnxhd_find_qscale(DNXHDEncContext *ctx)
             if (bits > ctx->frame_bits)
                 break;
         }
-        // ff_dlog(ctx->m.avctx,
-        //         "%d, qscale %d, bits %d, frame %d, higher %d, lower %d\n",
-        //         ctx->m.avctx->frame_number, qscale, bits, ctx->frame_bits,
-        //         last_higher, last_lower);
         if (bits < ctx->frame_bits) {
             if (qscale == 1)
                 return 1;
@@ -913,7 +906,6 @@ static int dnxhd_find_qscale(DNXHDEncContext *ctx)
                 return AVERROR(EINVAL);
         }
     }
-    //ff_dlog(ctx->m.avctx, "out qscale %d\n", qscale);
     ctx->qscale = qscale;
     return 0;
 }

@@ -29,9 +29,6 @@
 #include "wma_freqs.h"
 #include "wmadata.h"
 
-#undef NDEBUG
-#include <assert.h>
-
 /* XXX: use same run/length optimization as mpeg decoders */
 // FIXME maybe split decode / encode or pass flag
 static av_cold int init_coef_vlc(VLC *vlc, uint16_t **prun_table,
@@ -279,16 +276,6 @@ av_cold int ff_wma_init(AVCodecContext *avctx, int flags2)
                     s->exponent_high_bands[k][j++] = end - start;
             }
             s->exponent_high_sizes[k] = j;
-#if 0
-            ff_tlog(s->avctx, "%5d: coefs_end=%d high_band_start=%d nb_high_bands=%d: ",
-                    s->frame_len >> k,
-                    s->coefs_end[k],
-                    s->high_band_start[k],
-                    s->exponent_high_sizes[k]);
-            for (j = 0; j < s->exponent_high_sizes[k]; j++)
-                ff_tlog(s->avctx, " %d", s->exponent_high_bands[k][j]);
-            ff_tlog(s->avctx, "\n");
-#endif /* 0 */
         }
     }
 
@@ -424,7 +411,7 @@ unsigned int ff_wma_get_large_val(GetBitContext *gb)
  * @param version 0 for wma1,2 1 for wmapro
  * @param ptr output buffer
  * @param offset offset in the output buffer
- * @param num_coefs number of input coefficents
+ * @param num_coefs number of input coefficients
  * @param block_len input buffer length (2^n)
  * @param frame_len_bits number of bits for escaped run codes
  * @param coef_nb_bits number of bits for escaped level codes

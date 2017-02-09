@@ -240,10 +240,12 @@ const AVCodecTag ff_codec_bmp_tags[] = {
     { AV_CODEC_ID_RAWVIDEO,     MKTAG('Y', 'V', 'U', '9') },
     { AV_CODEC_ID_RAWVIDEO,     MKTAG('a', 'u', 'v', '2') },
     { AV_CODEC_ID_RAWVIDEO,     MKTAG('Y', 'V', 'Y', 'U') },
+    { AV_CODEC_ID_RAWVIDEO,     MKTAG('Y', 'U', 'Y', 'V') },
     { AV_CODEC_ID_FRWU,         MKTAG('F', 'R', 'W', 'U') },
     { AV_CODEC_ID_R10K,         MKTAG('R', '1', '0', 'k') },
     { AV_CODEC_ID_R210,         MKTAG('r', '2', '1', '0') },
     { AV_CODEC_ID_V210,         MKTAG('v', '2', '1', '0') },
+    { AV_CODEC_ID_V210,         MKTAG('C', '2', '1', '0') },
     { AV_CODEC_ID_V410,         MKTAG('v', '4', '1', '0') },
     { AV_CODEC_ID_INDEO3,       MKTAG('I', 'V', '3', '1') },
     { AV_CODEC_ID_INDEO3,       MKTAG('I', 'V', '3', '2') },
@@ -307,6 +309,7 @@ const AVCodecTag ff_codec_bmp_tags[] = {
     { AV_CODEC_ID_FRAPS,        MKTAG('F', 'P', 'S', '1') },
     { AV_CODEC_ID_THEORA,       MKTAG('t', 'h', 'e', 'o') },
     { AV_CODEC_ID_TRUEMOTION2,  MKTAG('T', 'M', '2', '0') },
+    { AV_CODEC_ID_TRUEMOTION2RT,MKTAG('T', 'R', '2', '0') },
     { AV_CODEC_ID_CSCD,         MKTAG('C', 'S', 'C', 'D') },
     { AV_CODEC_ID_ZMBV,         MKTAG('Z', 'M', 'B', 'V') },
     { AV_CODEC_ID_KMVC,         MKTAG('K', 'M', 'V', 'C') },
@@ -363,6 +366,8 @@ const AVCodecTag ff_codec_bmp_tags[] = {
     { AV_CODEC_ID_SCREENPRESSO, MKTAG('S', 'P', 'V', '1') },
     { AV_CODEC_ID_RSCC,         MKTAG('R', 'S', 'C', 'C') },
     { AV_CODEC_ID_RSCC,         MKTAG('I', 'S', 'C', 'C') },
+    { AV_CODEC_ID_MAGICYUV,     MKTAG('M', 'A', 'G', 'Y') },
+    { AV_CODEC_ID_AV1,          MKTAG('A', 'V', '0', '1') },
     { AV_CODEC_ID_NONE,         0 }
 };
 

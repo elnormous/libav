@@ -65,6 +65,8 @@
 { "extbrc",         "Extended bitrate control",               OFFSET(qsv.extbrc),         AV_OPT_TYPE_INT, { .i64 = -1 }, -1,          1, VE }, \
 { "adaptive_i",     "Adaptive I-frame placement",             OFFSET(qsv.adaptive_i),     AV_OPT_TYPE_INT, { .i64 = -1 }, -1,          1, VE }, \
 { "adaptive_b",     "Adaptive B-frame placement",             OFFSET(qsv.adaptive_b),     AV_OPT_TYPE_INT, { .i64 = -1 }, -1,          1, VE }, \
+{ "b_strategy",     "Strategy to choose between I/P/B-frames", OFFSET(qsv.b_strategy),    AV_OPT_TYPE_INT, { .i64 = -1 }, -1,          1, VE }, \
+{ "cavlc",          "Enable CAVLC",                           OFFSET(qsv.cavlc),          AV_OPT_TYPE_INT, { .i64 = 0 },   0,          1, VE }, \
 
 typedef struct QSVEncContext {
     AVCodecContext *avctx;
@@ -96,6 +98,8 @@ typedef struct QSVEncContext {
 
     AVFifoBuffer *async_fifo;
 
+    QSVFramesContext frames_ctx;
+
     // options set by the caller
     int async_depth;
     int idr_interval;
@@ -118,6 +122,8 @@ typedef struct QSVEncContext {
     int extbrc;
     int adaptive_i;
     int adaptive_b;
+    int b_strategy;
+    int cavlc;
 
     int int_ref_type;
     int int_ref_cycle_size;

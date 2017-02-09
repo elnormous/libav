@@ -125,7 +125,7 @@ static int dxv_decompress_dxt1(AVCodecContext *avctx)
     AV_WL32(ctx->tex_data + 4, bytestream2_get_le32(gbc));
 
     /* Process input until the whole texture has been filled */
-    while (pos < ctx->tex_size / 4) {
+    while (pos + 2 <= ctx->tex_size / 4) {
         CHECKPOINT(2);
 
         /* Copy two elements from a previous offset or from the input buffer */
@@ -178,7 +178,7 @@ static int dxv_decompress_dxt5(AVCodecContext *avctx)
     AV_WL32(ctx->tex_data + 12, bytestream2_get_le32(gbc));
 
     /* Process input until the whole texture has been filled */
-    while (pos < ctx->tex_size / 4) {
+    while (pos + 2 <= ctx->tex_size / 4) {
         if (run) {
             run--;
 
@@ -207,7 +207,7 @@ static int dxv_decompress_dxt5(AVCodecContext *avctx)
                         check += probe;
                     } while (probe == 0xFFFF);
                 }
-                while (check && pos < ctx->tex_size / 4) {
+                while (check && pos + 4 <= ctx->tex_size / 4) {
                     prev = AV_RL32(ctx->tex_data + 4 * (pos - 4));
                     AV_WL32(ctx->tex_data + 4 * pos, prev);
                     pos++;
@@ -252,6 +252,8 @@ static int dxv_decompress_dxt5(AVCodecContext *avctx)
             case 2:
                 /* Copy two dwords from a previous index */
                 idx = 8 + bytestream2_get_le16(gbc);
+                if (idx > pos || (unsigned int)(pos - idx) + 2 > ctx->tex_size / 4)
+                    return AVERROR_INVALIDDATA;
                 prev = AV_RL32(ctx->tex_data + 4 * (pos - idx));
                 AV_WL32(ctx->tex_data + 4 * pos, prev);
                 pos++;
@@ -274,9 +276,13 @@ static int dxv_decompress_dxt5(AVCodecContext *avctx)
         }
 
         CHECKPOINT(4);
+        if (pos + 2 > ctx->tex_size / 4)
+            return AVERROR_INVALIDDATA;
 
         /* Copy two elements from a previous offset or from the input buffer */
         if (op) {
+            if (idx > pos || (unsigned int)(pos - idx) + 2 > ctx->tex_size / 4)
+                return AVERROR_INVALIDDATA;
             prev = AV_RL32(ctx->tex_data + 4 * (pos - idx));
             AV_WL32(ctx->tex_data + 4 * pos, prev);
             pos++;
@@ -287,6 +293,8 @@ static int dxv_decompress_dxt5(AVCodecContext *avctx)
         } else {
             CHECKPOINT(4);
 
+            if (op && (idx > pos || (unsigned int)(pos - idx) + 2 > ctx->tex_size / 4))
+                return AVERROR_INVALIDDATA;
             if (op)
                 prev = AV_RL32(ctx->tex_data + 4 * (pos - idx));
             else
@@ -385,7 +393,8 @@ static int dxv_decode(AVCodecContext *avctx, void *data,
             ctx->tex_funct = ctx->texdsp.dxt1_block;
             ctx->tex_step  = 8;
         } else {
-            av_log(avctx, AV_LOG_ERROR, "Unsupported header (0x%08X)\n.", tag);
+            av_log(avctx, AV_LOG_ERROR,
+                   "Unsupported header (0x%08"PRIX32")\n.", tag);
             return AVERROR_INVALIDDATA;
         }
         ctx->tex_rat = 1;
@@ -413,7 +422,7 @@ static int dxv_decode(AVCodecContext *avctx, void *data,
 
     if (size != bytestream2_get_bytes_left(gbc)) {
         av_log(avctx, AV_LOG_ERROR,
-               "Incomplete or invalid file (header %d, left %d).\n",
+               "Incomplete or invalid file (header %d, left %u).\n",
                size, bytestream2_get_bytes_left(gbc));
         return AVERROR_INVALIDDATA;
     }

@@ -23,7 +23,7 @@
  */
 
 #include "golomb.h"
-#include "hevc.h"
+#include "hevcdec.h"
 
 enum HEVC_SEI_TYPE {
     SEI_TYPE_BUFFERING_PERIOD                     = 0,
@@ -95,7 +95,7 @@ static int decode_nal_sei_frame_packing_arrangement(HEVCContext *s)
         if (!s->quincunx_subsampling && s->frame_packing_arrangement_type != 5)
             skip_bits(gb, 16);  // frame[01]_grid_position_[xy]
         skip_bits(gb, 8);       // frame_packing_arrangement_reserved_byte
-        skip_bits1(gb);         // frame_packing_arrangement_persistance_flag
+        skip_bits1(gb);         // frame_packing_arrangement_persistence_flag
     }
     skip_bits1(gb);             // upsampled_aspect_ratio_flag
     return 0;
@@ -168,12 +168,11 @@ static int decode_nal_sei_message(HEVCContext *s)
         byte          = get_bits(gb, 8);
         payload_size += byte;
     }
-    if (s->nal_unit_type == NAL_SEI_PREFIX) {
+    if (s->nal_unit_type == HEVC_NAL_SEI_PREFIX) {
         return decode_nal_sei_prefix(s, payload_type, payload_size);
     } else { /* nal_unit_type == NAL_SEI_SUFFIX */
         return decode_nal_sei_suffix(s, payload_type, payload_size);
     }
-    return 0;
 }
 
 static int more_rbsp_data(GetBitContext *gb)

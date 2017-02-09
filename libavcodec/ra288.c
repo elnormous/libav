@@ -1,6 +1,6 @@
 /*
  * RealAudio 2.0 (28.8K)
- * Copyright (c) 2003 the ffmpeg project
+ * Copyright (c) 2003 The FFmpeg project
  *
  * This file is part of Libav.
  *
@@ -22,13 +22,14 @@
 #include "libavutil/channel_layout.h"
 #include "libavutil/float_dsp.h"
 #include "libavutil/internal.h"
-#include "avcodec.h"
-#include "internal.h"
+
 #define BITSTREAM_READER_LE
-#include "get_bits.h"
-#include "ra288.h"
-#include "lpc.h"
+#include "avcodec.h"
+#include "bitstream.h"
 #include "celp_filters.h"
+#include "internal.h"
+#include "lpc.h"
+#include "ra288.h"
 
 #define MAX_BACKWARD_FILTER_ORDER  36
 #define MAX_BACKWARD_FILTER_LEN    40
@@ -180,7 +181,7 @@ static int ra288_decode_frame(AVCodecContext * avctx, void *data,
     float *out;
     int i, ret;
     RA288Context *ractx = avctx->priv_data;
-    GetBitContext gb;
+    BitstreamContext bc;
 
     if (buf_size < avctx->block_align) {
         av_log(avctx, AV_LOG_ERROR,
@@ -197,11 +198,11 @@ static int ra288_decode_frame(AVCodecContext * avctx, void *data,
     }
     out = (float *)frame->data[0];
 
-    init_get_bits(&gb, buf, avctx->block_align * 8);
+    bitstream_init(&bc, buf, avctx->block_align * 8);
 
     for (i=0; i < RA288_BLOCKS_PER_FRAME; i++) {
-        float gain = amptable[get_bits(&gb, 3)];
-        int cb_coef = get_bits(&gb, 6 + (i&1));
+        float gain = amptable[bitstream_read(&bc, 3)];
+        int cb_coef = bitstream_read(&bc, 6 + (i & 1));
 
         decode(ractx, gain, cb_coef);
 

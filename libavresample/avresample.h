@@ -377,8 +377,9 @@ int avresample_get_out_samples(AVAudioResampleContext *avr, int in_nb_samples);
  *                        output FIFO
  */
 int avresample_convert(AVAudioResampleContext *avr, uint8_t **output,
-                       int out_plane_size, int out_samples, uint8_t **input,
-                       int in_plane_size, int in_samples);
+                       int out_plane_size, int out_samples,
+                       uint8_t * const *input, int in_plane_size,
+                       int in_samples);
 
 /**
  * Return the number of samples currently in the resampling delay buffer.
@@ -489,8 +490,8 @@ int avresample_convert_frame(AVAudioResampleContext *avr,
  * @see avresample_close();
  *
  * @param avr             audio resample context
- * @param output          output AVFrame
- * @param input           input AVFrame
+ * @param out             output AVFrame
+ * @param in              input AVFrame
  * @return                0 on success, AVERROR on failure.
  */
 int avresample_config(AVAudioResampleContext *avr, AVFrame *out, AVFrame *in);

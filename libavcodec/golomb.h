@@ -108,7 +108,7 @@ static inline int get_ue_golomb_31(GetBitContext *gb)
     return ff_ue_golomb_vlc_code[buf];
 }
 
-static inline unsigned svq3_get_ue_golomb(GetBitContext *gb)
+static inline unsigned get_interleaved_ue_golomb(GetBitContext *gb)
 {
     uint32_t buf;
 
@@ -218,7 +218,7 @@ static inline int get_se_golomb_long(GetBitContext *gb)
     return buf;
 }
 
-static inline int svq3_get_se_golomb(GetBitContext *gb)
+static inline int get_interleaved_se_golomb(GetBitContext *gb)
 {
     unsigned int buf;
 
@@ -253,7 +253,7 @@ static inline int svq3_get_se_golomb(GetBitContext *gb)
 
 static inline int dirac_get_se_golomb(GetBitContext *gb)
 {
-    uint32_t ret = svq3_get_ue_golomb(gb);
+    uint32_t ret = get_interleaved_ue_golomb(gb);
 
     if (ret) {
         uint32_t buf;
@@ -413,8 +413,6 @@ static inline int get_ue(GetBitContext *s, const char *file, const char *func,
     int len  = get_bits_count(s) - pos;
     int bits = show >> (24 - len);
 
-    print_bin(bits, len);
-
     av_log(NULL, AV_LOG_DEBUG, "%5d %2d %3d ue  @%5d in %s %s:%d\n",
            bits, len, i, pos, file, func, line);
 
@@ -429,8 +427,6 @@ static inline int get_se(GetBitContext *s, const char *file, const char *func,
     int i    = get_se_golomb(s);
     int len  = get_bits_count(s) - pos;
     int bits = show >> (24 - len);
-
-    print_bin(bits, len);
 
     av_log(NULL, AV_LOG_DEBUG, "%5d %2d %3d se  @%5d in %s %s:%d\n",
            bits, len, i, pos, file, func, line);
@@ -447,18 +443,16 @@ static inline int get_te(GetBitContext *s, int r, char *file, const char *func,
     int len  = get_bits_count(s) - pos;
     int bits = show >> (24 - len);
 
-    print_bin(bits, len);
-
     av_log(NULL, AV_LOG_DEBUG, "%5d %2d %3d te  @%5d in %s %s:%d\n",
            bits, len, i, pos, file, func, line);
 
     return i;
 }
 
-#define get_ue_golomb(a) get_ue(a, __FILE__, __PRETTY_FUNCTION__, __LINE__)
-#define get_se_golomb(a) get_se(a, __FILE__, __PRETTY_FUNCTION__, __LINE__)
-#define get_te_golomb(a, r)  get_te(a, r, __FILE__, __PRETTY_FUNCTION__, __LINE__)
-#define get_te0_golomb(a, r) get_te(a, r, __FILE__, __PRETTY_FUNCTION__, __LINE__)
+#define get_ue_golomb(a) get_ue(a, __FILE__, __func__, __LINE__)
+#define get_se_golomb(a) get_se(a, __FILE__, __func__, __LINE__)
+#define get_te_golomb(a, r)  get_te(a, r, __FILE__, __func__, __LINE__)
+#define get_te0_golomb(a, r) get_te(a, r, __FILE__, __func__, __LINE__)
 
 #endif /* TRACE */
 
@@ -469,12 +463,6 @@ static inline void set_ue_golomb(PutBitContext *pb, int i)
 {
     assert(i >= 0);
 
-#if 0
-    if (i = 0) {
-        put_bits(pb, 1, 1);
-        return;
-    }
-#endif
     if (i < 256)
         put_bits(pb, ff_ue_golomb_len[i], i + 1);
     else {
@@ -502,19 +490,9 @@ static inline void set_te_golomb(PutBitContext *pb, int i, int range)
  */
 static inline void set_se_golomb(PutBitContext *pb, int i)
 {
-#if 0
-    if (i <= 0)
-        i = -2 * i;
-    else
-        i = 2 * i - 1;
-#elif 1
     i = 2 * i - 1;
     if (i < 0)
         i ^= -1;    //FIXME check if gcc does the right thing
-#else
-    i  = 2 * i - 1;
-    i ^= (i >> 31);
-#endif
     set_ue_golomb(pb, i);
 }
 

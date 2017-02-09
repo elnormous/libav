@@ -105,6 +105,8 @@ typedef struct MOVStreamContext {
     MOVStts *ctts_data;
     unsigned int stsc_count;
     MOVStsc *stsc_data;
+    int stsc_index;
+    int stsc_sample;
     unsigned int stps_count;
     unsigned *stps_data;  ///< partial sync sample for mpeg-2 open gop
     int ctts_index;
@@ -126,7 +128,6 @@ typedef struct MOVStreamContext {
     unsigned drefs_count;
     MOVDref *drefs;
     int dref_id;
-    int wrong_dts;        ///< dts are wrong due to huge ctts offset (iMovie files)
     int width;            ///< tkhd width
     int height;           ///< tkhd height
     int dts_shift;        ///< dts shift when ctts is negative
@@ -136,6 +137,12 @@ typedef struct MOVStreamContext {
     int64_t track_end;    ///< used for dts generation in fragmented movie files
     unsigned int rap_group_count;
     MOVSbgp *rap_group;
+
+    /** extradata array (and size) for multiple stsd */
+    uint8_t **extradata;
+    int *extradata_size;
+    int last_stsd_index;
+    int stsd_count;
 
     int32_t *display_matrix;
 } MOVStreamContext;
@@ -159,6 +166,9 @@ typedef struct MOVContext {
     int64_t next_root_atom; ///< offset of the next root atom
     int export_all;
     int export_xmp;
+    int enable_drefs;
+
+    int32_t movie_display_matrix[3][3]; ///< display matrix from mvhd
 } MOVContext;
 
 int ff_mp4_read_descr_len(AVIOContext *pb);

@@ -1005,7 +1005,7 @@ static void reset_predictor_group(PredictorState *ps, int group_num)
                                     sizeof(ff_aac_spectral_codes[num][0]), \
         size);
 
-static av_cold void aac_static_table_init()
+static av_cold void aac_static_table_init(void)
 {
     AAC_INIT_VLC_STATIC( 0, 304);
     AAC_INIT_VLC_STATIC( 1, 270);
@@ -1246,8 +1246,7 @@ static int decode_ics_info(AACContext *ac, IndividualChannelStream *ics,
                 return AVERROR_INVALIDDATA;
             } else {
                 if (aot == AOT_ER_AAC_LD) {
-                    av_log(ac->avctx, AV_LOG_ERROR,
-                           "LTP in ER AAC LD not yet implemented.\n");
+                    avpriv_report_missing_feature(ac->avctx, "LTP in ER AAC LD");
                     return AVERROR_PATCHWELCOME;
                 }
                 if ((ics->ltp.present = get_bits(gb, 1)))
@@ -1916,8 +1915,8 @@ static int decode_ics(AACContext *ac, SingleChannelElement *sce,
             avpriv_request_sample(ac->avctx, "SSR");
             return AVERROR_PATCHWELCOME;
         }
-        // I see no textual basis in the spec for this occuring after SSR gain
-        // control, but this is what both reference and real implmentations do
+        // I see no textual basis in the spec for this occurring after SSR gain
+        // control, but this is what both reference and real implementations do
         if (tns->present && er_syntax)
             if (decode_tns(ac, tns, gb, ics) < 0)
                 return AVERROR_INVALIDDATA;
@@ -3047,7 +3046,7 @@ static av_cold int aac_decode_close(AVCodecContext *avctx)
 
 struct LATMContext {
     AACContext aac_ctx;     ///< containing AACContext
-    int initialized;        ///< initilized after a valid extradata was seen
+    int initialized;        ///< initialized after a valid extradata was seen
 
     // parser data
     int audio_mux_version_A; ///< LATM syntax version

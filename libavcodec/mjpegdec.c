@@ -140,9 +140,9 @@ int ff_mjpeg_decode_dqt(MJpegDecodeContext *s)
     len = get_bits(&s->gb, 16) - 2;
 
     while (len >= 65) {
-        /* only 8 bit precision handled */
+        /* only 8-bit precision handled */
         if (get_bits(&s->gb, 4) != 0) {
-            av_log(s->avctx, AV_LOG_ERROR, "dqt: 16bit precision\n");
+            av_log(s->avctx, AV_LOG_ERROR, "dqt: 16-bit precision\n");
             return -1;
         }
         index = get_bits(&s->gb, 4);
@@ -155,7 +155,7 @@ int ff_mjpeg_decode_dqt(MJpegDecodeContext *s)
             s->quant_matrixes[index][j] = get_bits(&s->gb, 8);
         }
 
-        // XXX FIXME finetune, and perhaps add dc too
+        // XXX FIXME fine-tune, and perhaps add dc too
         s->qscale[index] = FFMAX(s->quant_matrixes[index][s->scantable.permutated[1]],
                                  s->quant_matrixes[index][s->scantable.permutated[8]]) >> 1;
         av_log(s->avctx, AV_LOG_DEBUG, "qscale[%d]: %d\n",
@@ -373,7 +373,7 @@ int ff_mjpeg_decode_sof(MJpegDecodeContext *s)
         s->avctx->color_range = s->cs_itu601 ? AVCOL_RANGE_MPEG : AVCOL_RANGE_JPEG;
         break;
     default:
-        av_log(s->avctx, AV_LOG_ERROR, "Unhandled pixel format 0x%x\n", pix_fmt_id);
+        avpriv_report_missing_feature(s->avctx, "Pixel format 0x%x", pix_fmt_id);
         return AVERROR_PATCHWELCOME;
     }
     if (s->ls) {
@@ -1035,8 +1035,9 @@ int ff_mjpeg_decode_sos(MJpegDecodeContext *s, const uint8_t *mb_bitmask,
     len = get_bits(&s->gb, 16);
     nb_components = get_bits(&s->gb, 8);
     if (nb_components == 0 || nb_components > MAX_COMPONENTS) {
-        av_log(s->avctx, AV_LOG_ERROR,
-               "decode_sos: nb_components (%d) unsupported\n", nb_components);
+        avpriv_report_missing_feature(s->avctx,
+                                      "decode_sos: nb_components (%d)",
+                                      nb_components);
         return AVERROR_PATCHWELCOME;
     }
     if (len != 6 + 2 * nb_components) {
@@ -1215,16 +1216,8 @@ static int mjpeg_decode_app(MJpegDecodeContext *s)
             s->bottom_field = 1;
         else if (i == 1)
             s->bottom_field = 0;
-#if 0
-        skip_bits(&s->gb, 8);
-        skip_bits(&s->gb, 32);
-        skip_bits(&s->gb, 32);
-        len -= 10;
-#endif
         goto out;
     }
-
-//    len -= 2;
 
     if (id == AV_RL32("JFIF")) {
         int t_w, t_h, v1, v2;
@@ -1271,9 +1264,9 @@ static int mjpeg_decode_app(MJpegDecodeContext *s)
             av_log(s->avctx, AV_LOG_INFO,
                    "Pegasus lossless jpeg header found\n");
         skip_bits(&s->gb, 16); /* version ? */
-        skip_bits(&s->gb, 16); /* unknwon always 0? */
-        skip_bits(&s->gb, 16); /* unknwon always 0? */
-        skip_bits(&s->gb, 16); /* unknwon always 0? */
+        skip_bits(&s->gb, 16); /* unknown always 0? */
+        skip_bits(&s->gb, 16); /* unknown always 0? */
+        skip_bits(&s->gb, 16); /* unknown always 0? */
         switch (get_bits(&s->gb, 8)) {
         case 1:
             s->rgb         = 1;
@@ -1297,16 +1290,6 @@ static int mjpeg_decode_app(MJpegDecodeContext *s)
         len -= 4;
         /* Apple MJPEG-A */
         if (id == AV_RL32("mjpg")) {
-#if 0
-            skip_bits(&s->gb, 32); /* field size */
-            skip_bits(&s->gb, 32); /* pad field size */
-            skip_bits(&s->gb, 32); /* next off */
-            skip_bits(&s->gb, 32); /* quant off */
-            skip_bits(&s->gb, 32); /* huff off */
-            skip_bits(&s->gb, 32); /* image off */
-            skip_bits(&s->gb, 32); /* scan off */
-            skip_bits(&s->gb, 32); /* data off */
-#endif
             if (s->avctx->debug & FF_DEBUG_PICT_INFO)
                 av_log(s->avctx, AV_LOG_INFO, "mjpeg: Apple MJPEG-A header found\n");
         }
@@ -1327,30 +1310,31 @@ static int mjpeg_decode_com(MJpegDecodeContext *s)
 {
     int len = get_bits(&s->gb, 16);
     if (len >= 2 && 8 * len - 16 <= get_bits_left(&s->gb)) {
+        int i;
         char *cbuf = av_malloc(len - 1);
-        if (cbuf) {
-            int i;
-            for (i = 0; i < len - 2; i++)
-                cbuf[i] = get_bits(&s->gb, 8);
-            if (i > 0 && cbuf[i - 1] == '\n')
-                cbuf[i - 1] = 0;
-            else
-                cbuf[i] = 0;
+        if (!cbuf)
+            return AVERROR(ENOMEM);
 
-            if (s->avctx->debug & FF_DEBUG_PICT_INFO)
-                av_log(s->avctx, AV_LOG_INFO, "mjpeg comment: '%s'\n", cbuf);
+        for (i = 0; i < len - 2; i++)
+            cbuf[i] = get_bits(&s->gb, 8);
+        if (i > 0 && cbuf[i - 1] == '\n')
+            cbuf[i - 1] = 0;
+        else
+            cbuf[i] = 0;
 
-            /* buggy avid, it puts EOI only at every 10th frame */
-            if (!strcmp(cbuf, "AVID")) {
-                s->buggy_avid = 1;
-            } else if (!strcmp(cbuf, "CS=ITU601"))
-                s->cs_itu601 = 1;
-            else if ((len > 20 && !strncmp(cbuf, "Intel(R) JPEG Library", 21)) ||
-                     (len > 19 && !strncmp(cbuf, "Metasoft MJPEG Codec", 20)))
-                s->flipped = 1;
+        if (s->avctx->debug & FF_DEBUG_PICT_INFO)
+            av_log(s->avctx, AV_LOG_INFO, "mjpeg comment: '%s'\n", cbuf);
 
-            av_free(cbuf);
-        }
+        /* buggy avid, it puts EOI only at every 10th frame */
+        if (!strcmp(cbuf, "AVID")) {
+            s->buggy_avid = 1;
+        } else if (!strcmp(cbuf, "CS=ITU601"))
+            s->cs_itu601 = 1;
+        else if ((len > 20 && !strncmp(cbuf, "Intel(R) JPEG Library", 21)) ||
+                 (len > 19 && !strncmp(cbuf, "Metasoft MJPEG Codec", 20)))
+            s->flipped = 1;
+
+        av_free(cbuf);
     }
 
     return 0;
@@ -1525,8 +1509,11 @@ int ff_mjpeg_decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
         else if (start_code >= APP0 && start_code <= APP15)
             mjpeg_decode_app(s);
             /* Comment */
-        else if (start_code == COM)
-            mjpeg_decode_com(s);
+        else if (start_code == COM) {
+            ret = mjpeg_decode_com(s);
+            if (ret < 0)
+                return ret;
+        }
 
         if (!CONFIG_JPEGLS_DECODER &&
             (start_code == SOF48 || start_code == LSE)) {

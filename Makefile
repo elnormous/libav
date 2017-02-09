@@ -56,18 +56,18 @@ COMPILE_HOSTC = $(call COMPILE,HOSTCC)
 %_host.o: %.c
 	$(COMPILE_HOSTC)
 
+%.o: %.asm
+	$(DEPYASM) $(YASMFLAGS) -I $(<D)/ -M -o $@ $< > $(@:.o=.d)
+	$(YASM) $(YASMFLAGS) -I $(<D)/ -o $@ $<
+	-$(STRIP) $(STRIPFLAGS) $@
+
 %.i: %.c
 	$(CC) $(CCFLAGS) $(CC_E) $<
 
 %.h.c:
 	$(Q)echo '#include "$*.h"' >$@
 
-%.ver: %.v
-	$(Q)sed 's/$$MAJOR/$($(basename $(@F))_VERSION_MAJOR)/' $^ | sed -e 's/:/:\
-/' -e 's/; /;\
-/g' > $@
-
-%.c %.h: TAG = GEN
+%.c %.h %.ver: TAG = GEN
 
 AVPROGS-$(CONFIG_AVCONV)   += avconv
 AVPROGS-$(CONFIG_AVPLAY)   += avplay
@@ -82,10 +82,11 @@ ALLAVPROGS  = $(AVBASENAMES:%=%$(EXESUF))
 $(foreach prog,$(AVBASENAMES),$(eval OBJS-$(prog) += cmdutils.o))
 
 OBJS-avconv                   += avconv_opt.o avconv_filter.o
-OBJS-avconv-$(HAVE_VDPAU_X11) += avconv_vdpau.o
-OBJS-avconv-$(HAVE_DXVA2_LIB) += avconv_dxva2.o
-OBJS-avconv-$(CONFIG_VDA)     += avconv_vda.o
 OBJS-avconv-$(CONFIG_LIBMFX)  += avconv_qsv.o
+OBJS-avconv-$(CONFIG_VAAPI)   += avconv_vaapi.o
+OBJS-avconv-$(CONFIG_VDA)     += avconv_vda.o
+OBJS-avconv-$(HAVE_DXVA2_LIB) += avconv_dxva2.o
+OBJS-avconv-$(HAVE_VDPAU_X11) += avconv_vdpau.o
 
 TESTTOOLS   = audiogen videogen rotozoom tiny_psnr base64
 HOSTPROGS  := $(TESTTOOLS:%=tests/%) doc/print_options
@@ -104,7 +105,8 @@ FFLIBS := avutil
 
 DATA_FILES := $(wildcard $(SRC_PATH)/presets/*.avpreset)
 
-SKIPHEADERS = cmdutils_common_opts.h compat/w32pthreads.h
+SKIPHEADERS = cmdutils_common_opts.h                                    \
+              compat/w32pthreads.h
 
 include $(SRC_PATH)/common.mak
 
@@ -119,8 +121,13 @@ $(TOOLS): %$(EXESUF): %.o $(EXEOBJS)
 
 tools/cws2fws$(EXESUF): ELIBS = $(ZLIB)
 
+CONFIGURABLE_COMPONENTS =                                           \
+    $(wildcard $(FFLIBS:%=$(SRC_PATH)/lib%/all*.c))                 \
+    $(SRC_PATH)/libavcodec/bitstream_filters.c                      \
+    $(SRC_PATH)/libavformat/protocols.c                             \
+
 config.h: .config
-.config: $(wildcard $(FFLIBS:%=$(SRC_PATH)/lib%/all*.c))
+.config: $(CONFIGURABLE_COMPONENTS)
 	@-tput bold 2>/dev/null
 	@-printf '\nWARNING: $(?F) newer than config.h, rerun configure\n\n'
 	@-tput sgr0 2>/dev/null
@@ -128,7 +135,7 @@ config.h: .config
 SUBDIR_VARS := CLEANFILES EXAMPLES FFLIBS HOSTPROGS TESTPROGS TOOLS      \
                HEADERS ARCH_HEADERS BUILT_HEADERS SKIPHEADERS            \
                ARMV5TE-OBJS ARMV6-OBJS ARMV8-OBJS VFP-OBJS NEON-OBJS     \
-               ALTIVEC-OBJS MMX-OBJS YASM-OBJS                           \
+               ALTIVEC-OBJS VSX-OBJS MMX-OBJS YASM-OBJS                  \
                OBJS HOSTOBJS TESTOBJS
 
 define RESET
@@ -173,6 +180,7 @@ GIT_LOG     = $(SRC_PATH)/.git/logs/HEAD
 .version: $(wildcard $(GIT_LOG)) $(VERSION_SH) config.mak
 .version: M=@
 
+cmdutils.o libavutil/utils.o: avversion.h
 avversion.h .version:
 	$(M)$(VERSION_SH) $(SRC_PATH) avversion.h $(EXTRA_VERSION)
 	$(Q)touch .version
@@ -215,7 +223,8 @@ clean::
 
 distclean::
 	$(RM) $(DISTCLEANSUFFIXES)
-	$(RM) config.* .config libavutil/avconfig.h .version avversion.h
+	$(RM) config.* .config libavutil/avconfig.h .version avversion.h \
+            mapfile libavcodec/bsf_list.c libavformat/protocol_list.c
 
 config:
 	$(SRC_PATH)/configure $(value LIBAV_CONFIGURATION)

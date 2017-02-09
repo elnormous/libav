@@ -69,7 +69,7 @@ void av_packet_free(AVPacket **pkt)
 static int packet_alloc(AVBufferRef **buf, int size)
 {
     int ret;
-    if ((unsigned)size >= (unsigned)size + AV_INPUT_BUFFER_PADDING_SIZE)
+    if (size < 0 || size >= INT_MAX - AV_INPUT_BUFFER_PADDING_SIZE)
         return AVERROR(EINVAL);
 
     ret = av_buffer_realloc(buf, size + AV_INPUT_BUFFER_PADDING_SIZE);
@@ -237,29 +237,48 @@ void av_free_packet(AVPacket *pkt)
 FF_ENABLE_DEPRECATION_WARNINGS
 #endif
 
-uint8_t *av_packet_new_side_data(AVPacket *pkt, enum AVPacketSideDataType type,
-                                 int size)
+int av_packet_add_side_data(AVPacket *pkt, enum AVPacketSideDataType type,
+                            uint8_t *data, size_t size)
 {
+    AVPacketSideData *tmp;
     int elems = pkt->side_data_elems;
 
     if ((unsigned)elems + 1 > INT_MAX / sizeof(*pkt->side_data))
-        return NULL;
-    if ((unsigned)size > INT_MAX - AV_INPUT_BUFFER_PADDING_SIZE)
-        return NULL;
+        return AVERROR(ERANGE);
 
-    pkt->side_data = av_realloc(pkt->side_data,
-                                (elems + 1) * sizeof(*pkt->side_data));
-    if (!pkt->side_data)
-        return NULL;
+    tmp = av_realloc(pkt->side_data, (elems + 1) * sizeof(*tmp));
+    if (!tmp)
+        return AVERROR(ENOMEM);
 
-    pkt->side_data[elems].data = av_malloc(size + AV_INPUT_BUFFER_PADDING_SIZE);
-    if (!pkt->side_data[elems].data)
-        return NULL;
+    pkt->side_data = tmp;
+    pkt->side_data[elems].data = data;
     pkt->side_data[elems].size = size;
     pkt->side_data[elems].type = type;
     pkt->side_data_elems++;
 
-    return pkt->side_data[elems].data;
+    return 0;
+}
+
+
+uint8_t *av_packet_new_side_data(AVPacket *pkt, enum AVPacketSideDataType type,
+                                 int size)
+{
+    int ret;
+    uint8_t *data;
+
+    if (!size || (unsigned)size > INT_MAX - AV_INPUT_BUFFER_PADDING_SIZE)
+        return NULL;
+    data = av_malloc(size + AV_INPUT_BUFFER_PADDING_SIZE);
+    if (!data)
+        return NULL;
+
+    ret = av_packet_add_side_data(pkt, type, data, size);
+    if (ret < 0) {
+        av_freep(&data);
+        return NULL;
+    }
+
+    return data;
 }
 
 uint8_t *av_packet_get_side_data(AVPacket *pkt, enum AVPacketSideDataType type,
@@ -334,7 +353,7 @@ void av_packet_unref(AVPacket *pkt)
     pkt->size = 0;
 }
 
-int av_packet_ref(AVPacket *dst, AVPacket *src)
+int av_packet_ref(AVPacket *dst, const AVPacket *src)
 {
     int ret;
 
@@ -347,23 +366,26 @@ int av_packet_ref(AVPacket *dst, AVPacket *src)
         if (ret < 0)
             goto fail;
         memcpy(dst->buf->data, src->data, src->size);
+
+        dst->data = dst->buf->data;
     } else {
         dst->buf = av_buffer_ref(src->buf);
         if (!dst->buf) {
             ret = AVERROR(ENOMEM);
             goto fail;
         }
+        dst->data = src->data;
     }
 
     dst->size = src->size;
-    dst->data = dst->buf->data;
+
     return 0;
 fail:
     av_packet_free_side_data(dst);
     return ret;
 }
 
-AVPacket *av_packet_clone(AVPacket *src)
+AVPacket *av_packet_clone(const AVPacket *src)
 {
     AVPacket *ret = av_packet_alloc();
 
@@ -380,6 +402,8 @@ void av_packet_move_ref(AVPacket *dst, AVPacket *src)
 {
     *dst = *src;
     av_init_packet(src);
+    src->data = NULL;
+    src->size = 0;
 }
 
 void av_packet_rescale_ts(AVPacket *pkt, AVRational src_tb, AVRational dst_tb)

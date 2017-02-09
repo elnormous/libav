@@ -265,7 +265,7 @@ static int rtmpe_open(URLContext *h, const char *uri, int flags)
 
     /* open the tcp or ffrtmphttp connection */
     if ((ret = ffurl_open(&rt->stream, url, AVIO_FLAG_READ_WRITE,
-                          &h->interrupt_callback, NULL)) < 0) {
+                          &h->interrupt_callback, NULL, h->protocols, h)) < 0) {
         rtmpe_close(h);
         return ret;
     }
@@ -324,7 +324,7 @@ static const AVClass ffrtmpcrypt_class = {
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
-URLProtocol ff_ffrtmpcrypt_protocol = {
+const URLProtocol ff_ffrtmpcrypt_protocol = {
     .name            = "ffrtmpcrypt",
     .url_open        = rtmpe_open,
     .url_read        = rtmpe_read,

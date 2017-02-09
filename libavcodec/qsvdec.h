@@ -43,17 +43,22 @@ typedef struct QSVContext {
     // one
     mfxSession internal_session;
 
+    QSVFramesContext frames_ctx;
+
     /**
      * a linked list of frames currently being used by QSV
      */
     QSVFrame *work_frames;
 
     AVFifoBuffer *async_fifo;
+    int zero_consume_run;
 
     // the internal parser and codec context for parsing the data
     AVCodecParserContext *parser;
     AVCodecContext *avctx_internal;
     enum AVPixelFormat orig_pix_fmt;
+    uint32_t fourcc;
+    mfxFrameInfo frame_info;
 
     // options set by the caller
     int async_depth;
@@ -64,8 +69,6 @@ typedef struct QSVContext {
     mfxExtBuffer **ext_buffers;
     int         nb_ext_buffers;
 } QSVContext;
-
-int ff_qsv_map_pixfmt(enum AVPixelFormat format);
 
 int ff_qsv_process_data(AVCodecContext *avctx, QSVContext *q,
                         AVFrame *frame, int *got_frame, AVPacket *pkt);

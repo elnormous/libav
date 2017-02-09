@@ -45,7 +45,6 @@ enum DDSPostProc {
     DDS_ALPHA_EXP,
     DDS_NORMAL_MAP,
     DDS_RAW_YCOCG,
-    DDS_SWAP_ALPHA,
     DDS_SWIZZLE_A2XY,
     DDS_SWIZZLE_RBXG,
     DDS_SWIZZLE_RGXB,
@@ -241,6 +240,10 @@ static int parse_pixel_format(AVCodecContext *avctx)
             ctx->paletted   = 1;
             avctx->pix_fmt  = AV_PIX_FMT_PAL8;
             break;
+        case MKTAG('G', '1', ' ', ' '):
+            ctx->compressed = 0;
+            avctx->pix_fmt  = AV_PIX_FMT_MONOBLACK;
+            break;
         case MKTAG('D', 'X', '1', '0'):
             /* DirectX 10 extra header */
             dxgi = bytestream2_get_le32(gbc);
@@ -352,11 +355,17 @@ static int parse_pixel_format(AVCodecContext *avctx)
         /*  8 bpp */
         if (bpp == 8 && r == 0xff && g == 0 && b == 0 && a == 0)
             avctx->pix_fmt = AV_PIX_FMT_GRAY8;
+        else if (bpp == 8 && r == 0 && g == 0 && b == 0 && a == 0xff)
+            avctx->pix_fmt = AV_PIX_FMT_GRAY8;
         /* 16 bpp */
         else if (bpp == 16 && r == 0xff && g == 0 && b == 0 && a == 0xff00)
             avctx->pix_fmt = AV_PIX_FMT_YA8;
         else if (bpp == 16 && r == 0xffff && g == 0 && b == 0 && a == 0)
             avctx->pix_fmt = AV_PIX_FMT_GRAY16LE;
+        else if (bpp == 16 && r == 0x7c00 && g == 0x3e0 && b == 0x1f && a == 0)
+            avctx->pix_fmt = AV_PIX_FMT_RGB555LE;
+        else if (bpp == 16 && r == 0x7c00 && g == 0x3e0 && b == 0x1f && a == 0x8000)
+            avctx->pix_fmt = AV_PIX_FMT_RGB555LE; // alpha ignored
         else if (bpp == 16 && r == 0xf800 && g == 0x7e0 && b == 0x1f && a == 0)
             avctx->pix_fmt = AV_PIX_FMT_RGB565LE;
         /* 24 bpp */
@@ -386,8 +395,6 @@ static int parse_pixel_format(AVCodecContext *avctx)
         ctx->postproc = DDS_NORMAL_MAP;
     else if (ycocg_classic && !ctx->compressed)
         ctx->postproc = DDS_RAW_YCOCG;
-    else if (avctx->pix_fmt == AV_PIX_FMT_YA8)
-        ctx->postproc = DDS_SWAP_ALPHA;
 
     /* ATI/NVidia variants sometimes add swizzling in bpp. */
     switch (bpp) {
@@ -532,15 +539,6 @@ static void run_postproc(AVCodecContext *avctx, AVFrame *frame)
             src[1] = av_clip_uint8(y + cg);
             src[2] = av_clip_uint8(y - co - cg);
             src[3] = a;
-        }
-        break;
-    case DDS_SWAP_ALPHA:
-        /* Alpha and Luma are stored swapped. */
-        av_log(avctx, AV_LOG_DEBUG, "Post-processing swapped Luma/Alpha.\n");
-
-        for (i = 0; i < frame->linesize[0] * frame->height; i += 2) {
-            uint8_t *src = frame->data[0] + i;
-            FFSWAP(uint8_t, src[0], src[1]);
         }
         break;
     case DDS_SWIZZLE_A2XY:
@@ -695,9 +693,7 @@ static int dds_decode(AVCodecContext *avctx, void *data,
     }
 
     /* Run any post processing here if needed. */
-    if (avctx->pix_fmt == AV_PIX_FMT_BGRA ||
-        avctx->pix_fmt == AV_PIX_FMT_RGBA ||
-        avctx->pix_fmt == AV_PIX_FMT_YA8)
+    if (ctx->postproc != DDS_NONE)
         run_postproc(avctx, frame);
 
     /* Frame is ready to be output. */

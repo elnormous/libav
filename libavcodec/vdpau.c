@@ -22,15 +22,11 @@
  */
 
 #include <limits.h>
-#include "libavutil/avassert.h"
+
 #include "avcodec.h"
 #include "internal.h"
-#include "h264.h"
+#include "h264dec.h"
 #include "vc1.h"
-
-#undef NDEBUG
-#include <assert.h>
-
 #include "vdpau.h"
 #include "vdpau_internal.h"
 
@@ -271,7 +267,7 @@ int ff_vdpau_common_end_frame(AVCodecContext *avctx, AVFrame *frame,
     if (val < 0)
         return val;
 
-    status = vdctx->render(vdctx->decoder, surf, (void *)&pic_ctx->info,
+    status = vdctx->render(vdctx->decoder, surf, &pic_ctx->info,
                            pic_ctx->bitstream_buffers_used,
                            pic_ctx->bitstream_buffers);
 
@@ -317,6 +313,7 @@ int ff_vdpau_add_buffer(struct vdpau_picture_context *pic_ctx,
     return 0;
 }
 
+#if FF_API_VDPAU_PROFILE
 int av_vdpau_get_profile(AVCodecContext *avctx, VdpDecoderProfile *profile)
 {
 #define PROFILE(prof)                      \
@@ -363,6 +360,7 @@ do {                                       \
     return AVERROR(EINVAL);
 #undef PROFILE
 }
+#endif /* FF_API_VDPAU_PROFILE */
 
 AVVDPAUContext *av_vdpau_alloc_context(void)
 {

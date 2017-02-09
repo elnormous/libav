@@ -27,10 +27,24 @@
 #include "libavutil/display.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
+#include "libavutil/stereo3d.h"
 #include "libavutil/dict.h"
 #include "libavutil/libm.h"
 #include "libavdevice/avdevice.h"
 #include "cmdutils.h"
+
+typedef struct InputStream {
+    AVStream *st;
+
+    AVCodecContext *dec_ctx;
+} InputStream;
+
+typedef struct InputFile {
+    AVFormatContext *fmt_ctx;
+
+    InputStream *streams;
+    int       nb_streams;
+} InputFile;
 
 const char program_name[] = "avprobe";
 const int program_birth_year = 2007;
@@ -40,6 +54,11 @@ static AVDictionary *fmt_entries_to_show = NULL;
 static int nb_fmt_entries_to_show;
 static int do_show_packets = 0;
 static int do_show_streams = 0;
+static AVDictionary *stream_entries_to_show = NULL;
+static int nb_stream_entries_to_show;
+
+/* key used to print when probe_{int,str}(NULL, ..) is invoked */
+static const char *header_key;
 
 static int show_value_unit              = 0;
 static int use_value_prefix             = 0;
@@ -49,7 +68,7 @@ static int use_value_sexagesimal_format = 0;
 /* globals */
 static const OptionDef *options;
 
-/* AVprobe context */
+/* avprobe context */
 static const char *input_filename;
 static AVInputFormat *iformat = NULL;
 
@@ -64,6 +83,7 @@ static const char unit_bit_per_second_str[] = "bit/s";
 static void avprobe_cleanup(int ret)
 {
     av_dict_free(&fmt_entries_to_show);
+    av_dict_free(&stream_entries_to_show);
 }
 
 /*
@@ -388,6 +408,37 @@ static void show_format_entry_string(const char *key, const char *value)
     }
 }
 
+static void show_stream_entry_header(const char *key, int value)
+{
+    header_key = key;
+}
+
+static void show_stream_entry_footer(const char *key, int value)
+{
+    header_key = NULL;
+}
+
+static void show_stream_entry_integer(const char *key, int64_t value)
+{
+    if (!key)
+        key = header_key;
+
+    if (key && av_dict_get(stream_entries_to_show, key, NULL, 0)) {
+        if (nb_stream_entries_to_show > 1)
+            avio_printf(probe_out, "%s=", key);
+        avio_printf(probe_out, "%"PRId64"\n", value);
+    }
+}
+
+static void show_stream_entry_string(const char *key, const char *value)
+{
+    if (key && av_dict_get(stream_entries_to_show, key, NULL, 0)) {
+        if (nb_stream_entries_to_show > 1)
+            avio_printf(probe_out, "%s=", key);
+        avio_printf(probe_out, "%s\n", value);
+    }
+}
+
 static void probe_group_enter(const char *name, int type)
 {
     int64_t count = -1;
@@ -563,7 +614,7 @@ static void show_packet(AVFormatContext *fmt_ctx, AVPacket *pkt)
     AVStream *st = fmt_ctx->streams[pkt->stream_index];
 
     probe_object_header("packet");
-    probe_str("codec_type", media_type_string(st->codec->codec_type));
+    probe_str("codec_type", media_type_string(st->codecpar->codec_type));
     probe_int("stream_index", pkt->stream_index);
     probe_str("pts", ts_value_string(val_str, sizeof(val_str), pkt->pts));
     probe_str("pts_time", time_value_string(val_str, sizeof(val_str),
@@ -591,8 +642,9 @@ static void show_packet(AVFormatContext *fmt_ctx, AVPacket *pkt)
     }
 }
 
-static void show_packets(AVFormatContext *fmt_ctx)
+static void show_packets(InputFile *ifile)
 {
+    AVFormatContext *fmt_ctx = ifile->fmt_ctx;
     AVPacket pkt;
 
     av_init_packet(&pkt);
@@ -604,11 +656,13 @@ static void show_packets(AVFormatContext *fmt_ctx)
     probe_array_footer("packets", 0);
 }
 
-static void show_stream(AVFormatContext *fmt_ctx, int stream_idx)
+static void show_stream(InputFile *ifile, InputStream *ist)
 {
-    AVStream *stream = fmt_ctx->streams[stream_idx];
+    AVFormatContext *fmt_ctx = ifile->fmt_ctx;
+    AVStream *stream = ist->st;
+    AVCodecParameters *par;
     AVCodecContext *dec_ctx;
-    const AVCodec *dec;
+    const AVCodecDescriptor *codec_desc;
     const char *profile;
     char val_str[128];
     AVRational display_aspect_ratio, *sar = NULL;
@@ -618,74 +672,75 @@ static void show_stream(AVFormatContext *fmt_ctx, int stream_idx)
 
     probe_int("index", stream->index);
 
-    if ((dec_ctx = stream->codec)) {
-        if ((dec = dec_ctx->codec)) {
-            probe_str("codec_name", dec->name);
-            probe_str("codec_long_name", dec->long_name);
-        } else {
-            probe_str("codec_name", "unknown");
-        }
+    par     = stream->codecpar;
+    dec_ctx = ist->dec_ctx;
+    codec_desc = avcodec_descriptor_get(par->codec_id);
+    if (codec_desc) {
+        probe_str("codec_name", codec_desc->name);
+        probe_str("codec_long_name", codec_desc->long_name);
+    } else {
+        probe_str("codec_name", "unknown");
+    }
 
-        probe_str("codec_type", media_type_string(dec_ctx->codec_type));
-        probe_str("codec_time_base",
-                  rational_string(val_str, sizeof(val_str),
-                                  "/", &dec_ctx->time_base));
+    probe_str("codec_type", media_type_string(par->codec_type));
 
-        /* print AVI/FourCC tag */
-        av_get_codec_tag_string(val_str, sizeof(val_str), dec_ctx->codec_tag);
-        probe_str("codec_tag_string", val_str);
-        probe_str("codec_tag", tag_string(val_str, sizeof(val_str),
-                                          dec_ctx->codec_tag));
+    /* print AVI/FourCC tag */
+    av_get_codec_tag_string(val_str, sizeof(val_str), par->codec_tag);
+    probe_str("codec_tag_string", val_str);
+    probe_str("codec_tag", tag_string(val_str, sizeof(val_str),
+                                      par->codec_tag));
 
-        /* print profile, if there is one */
-        if (dec && (profile = av_get_profile_name(dec, dec_ctx->profile)))
-            probe_str("profile", profile);
+    /* print profile, if there is one */
+    profile = avcodec_profile_name(par->codec_id, par->profile);
+    if (profile)
+        probe_str("profile", profile);
 
-        switch (dec_ctx->codec_type) {
-        case AVMEDIA_TYPE_VIDEO:
-            probe_int("width", dec_ctx->width);
-            probe_int("height", dec_ctx->height);
-            probe_int("coded_width", dec_ctx->coded_width);
+    switch (par->codec_type) {
+    case AVMEDIA_TYPE_VIDEO:
+        probe_int("width",  par->width);
+        probe_int("height", par->height);
+        if (dec_ctx) {
+            probe_int("coded_width",  dec_ctx->coded_width);
             probe_int("coded_height", dec_ctx->coded_height);
             probe_int("has_b_frames", dec_ctx->has_b_frames);
-            if (dec_ctx->sample_aspect_ratio.num)
-                sar = &dec_ctx->sample_aspect_ratio;
-            else if (stream->sample_aspect_ratio.num)
-                sar = &stream->sample_aspect_ratio;
-
-            if (sar) {
-                probe_str("sample_aspect_ratio",
-                          rational_string(val_str, sizeof(val_str), ":", sar));
-                av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
-                          dec_ctx->width  * sar->num, dec_ctx->height * sar->den,
-                          1024*1024);
-                probe_str("display_aspect_ratio",
-                          rational_string(val_str, sizeof(val_str), ":",
-                          &display_aspect_ratio));
-            }
-            desc = av_pix_fmt_desc_get(dec_ctx->pix_fmt);
-            probe_str("pix_fmt", desc ? desc->name : "unknown");
-            probe_int("level", dec_ctx->level);
-
-            probe_str("color_range", av_color_range_name(dec_ctx->color_range));
-            probe_str("color_space", av_color_space_name(dec_ctx->colorspace));
-            probe_str("color_trc", av_color_transfer_name(dec_ctx->color_trc));
-            probe_str("color_pri", av_color_primaries_name(dec_ctx->color_primaries));
-            probe_str("chroma_loc", av_chroma_location_name(dec_ctx->chroma_sample_location));
-            break;
-
-        case AVMEDIA_TYPE_AUDIO:
-            probe_str("sample_rate",
-                      value_string(val_str, sizeof(val_str),
-                                   dec_ctx->sample_rate,
-                                   unit_hertz_str));
-            probe_int("channels", dec_ctx->channels);
-            probe_int("bits_per_sample",
-                      av_get_bits_per_sample(dec_ctx->codec_id));
-            break;
         }
-    } else {
-        probe_str("codec_type", "unknown");
+        if (dec_ctx && dec_ctx->sample_aspect_ratio.num)
+            sar = &dec_ctx->sample_aspect_ratio;
+        else if (par->sample_aspect_ratio.num)
+            sar = &par->sample_aspect_ratio;
+        else if (stream->sample_aspect_ratio.num)
+            sar = &stream->sample_aspect_ratio;
+
+        if (sar) {
+            probe_str("sample_aspect_ratio",
+                      rational_string(val_str, sizeof(val_str), ":", sar));
+            av_reduce(&display_aspect_ratio.num, &display_aspect_ratio.den,
+                      par->width  * sar->num, par->height * sar->den,
+                      1024*1024);
+            probe_str("display_aspect_ratio",
+                      rational_string(val_str, sizeof(val_str), ":",
+                      &display_aspect_ratio));
+        }
+        desc = av_pix_fmt_desc_get(par->format);
+        probe_str("pix_fmt", desc ? desc->name : "unknown");
+        probe_int("level", par->level);
+
+        probe_str("color_range", av_color_range_name    (par->color_range));
+        probe_str("color_space", av_color_space_name    (par->color_space));
+        probe_str("color_trc",   av_color_transfer_name (par->color_trc));
+        probe_str("color_pri",   av_color_primaries_name(par->color_primaries));
+        probe_str("chroma_loc", av_chroma_location_name (par->chroma_location));
+        break;
+
+    case AVMEDIA_TYPE_AUDIO:
+        probe_str("sample_rate",
+                  value_string(val_str, sizeof(val_str),
+                               par->sample_rate,
+                               unit_hertz_str));
+        probe_int("channels", par->channels);
+        probe_int("bits_per_sample",
+                  av_get_bits_per_sample(par->codec_id));
+        break;
     }
 
     if (fmt_ctx->iformat->flags & AVFMT_SHOW_IDS)
@@ -693,10 +748,11 @@ static void show_stream(AVFormatContext *fmt_ctx, int stream_idx)
     probe_str("avg_frame_rate",
               rational_string(val_str, sizeof(val_str), "/",
               &stream->avg_frame_rate));
-    if (dec_ctx->bit_rate)
+
+    if (par->bit_rate)
         probe_str("bit_rate",
                   value_string(val_str, sizeof(val_str),
-                               dec_ctx->bit_rate, unit_bit_per_second_str));
+                               par->bit_rate, unit_bit_per_second_str));
     probe_str("time_base",
               rational_string(val_str, sizeof(val_str), "/",
               &stream->time_base));
@@ -713,9 +769,12 @@ static void show_stream(AVFormatContext *fmt_ctx, int stream_idx)
 
     if (stream->nb_side_data) {
         int i, j;
+
         probe_object_header("sidedata");
         for (i = 0; i < stream->nb_side_data; i++) {
             const AVPacketSideData* sd = &stream->side_data[i];
+            AVStereo3D *stereo;
+
             switch (sd->type) {
             case AV_PKT_DATA_DISPLAYMATRIX:
                 probe_object_header("displaymatrix");
@@ -727,6 +786,14 @@ static void show_stream(AVFormatContext *fmt_ctx, int stream_idx)
                           av_display_rotation_get((int32_t *)sd->data));
                 probe_object_footer("displaymatrix");
                 break;
+            case AV_PKT_DATA_STEREO3D:
+                stereo = (AVStereo3D *)sd->data;
+                probe_object_header("stereo3d");
+                probe_str("type", av_stereo3d_type_name(stereo->type));
+                probe_int("inverted",
+                          !!(stereo->flags & AV_STEREO3D_FLAG_INVERT));
+                probe_object_footer("stereo3d");
+                break;
             }
         }
         probe_object_footer("sidedata");
@@ -735,8 +802,9 @@ static void show_stream(AVFormatContext *fmt_ctx, int stream_idx)
     probe_object_footer("stream");
 }
 
-static void show_format(AVFormatContext *fmt_ctx)
+static void show_format(InputFile *ifile)
 {
+    AVFormatContext *fmt_ctx = ifile->fmt_ctx;
     char val_str[128];
     int64_t size = fmt_ctx->pb ? avio_size(fmt_ctx->pb) : -1;
 
@@ -764,7 +832,7 @@ static void show_format(AVFormatContext *fmt_ctx)
     probe_object_footer("format");
 }
 
-static int open_input_file(AVFormatContext **fmt_ctx_ptr, const char *filename)
+static int open_input_file(InputFile *ifile, const char *filename)
 {
     int err, i;
     AVFormatContext *fmt_ctx = NULL;
@@ -789,64 +857,95 @@ static int open_input_file(AVFormatContext **fmt_ctx_ptr, const char *filename)
 
     av_dump_format(fmt_ctx, 0, filename, 0);
 
+    ifile->streams = av_mallocz_array(fmt_ctx->nb_streams,
+                                      sizeof(*ifile->streams));
+    if (!ifile->streams)
+        exit(1);
+    ifile->nb_streams = fmt_ctx->nb_streams;
+
     /* bind a decoder to each input stream */
     for (i = 0; i < fmt_ctx->nb_streams; i++) {
+        InputStream *ist = &ifile->streams[i];
         AVStream *stream = fmt_ctx->streams[i];
         AVCodec *codec;
 
-        if (stream->codec->codec_id == AV_CODEC_ID_PROBE) {
+        ist->st = stream;
+
+        if (stream->codecpar->codec_id == AV_CODEC_ID_PROBE) {
             fprintf(stderr, "Failed to probe codec for input stream %d\n",
                     stream->index);
-        } else if (!(codec = avcodec_find_decoder(stream->codec->codec_id))) {
+            continue;
+        }
+
+        codec = avcodec_find_decoder(stream->codecpar->codec_id);
+        if (!codec) {
             fprintf(stderr,
                     "Unsupported codec with id %d for input stream %d\n",
-                    stream->codec->codec_id, stream->index);
-        } else if (avcodec_open2(stream->codec, codec, NULL) < 0) {
+                    stream->codecpar->codec_id, stream->index);
+            continue;
+        }
+
+        ist->dec_ctx = avcodec_alloc_context3(codec);
+        if (!ist->dec_ctx)
+            exit(1);
+
+        err = avcodec_parameters_to_context(ist->dec_ctx, stream->codecpar);
+        if (err < 0)
+            exit(1);
+
+        err = avcodec_open2(ist->dec_ctx, NULL, NULL);
+        if (err < 0) {
             fprintf(stderr, "Error while opening codec for input stream %d\n",
                     stream->index);
+            exit(1);
+
         }
     }
 
-    *fmt_ctx_ptr = fmt_ctx;
+    ifile->fmt_ctx = fmt_ctx;
     return 0;
 }
 
-static void close_input_file(AVFormatContext **ctx_ptr)
+static void close_input_file(InputFile *ifile)
 {
     int i;
-    AVFormatContext *fmt_ctx = *ctx_ptr;
 
     /* close decoder for each stream */
-    for (i = 0; i < fmt_ctx->nb_streams; i++) {
-        AVStream *stream = fmt_ctx->streams[i];
+    for (i = 0; i < ifile->nb_streams; i++) {
+        InputStream *ist = &ifile->streams[i];
 
-        avcodec_close(stream->codec);
+        avcodec_free_context(&ist->dec_ctx);
     }
-    avformat_close_input(ctx_ptr);
+
+    av_freep(&ifile->streams);
+    ifile->nb_streams = 0;
+
+    avformat_close_input(&ifile->fmt_ctx);
 }
 
 static int probe_file(const char *filename)
 {
-    AVFormatContext *fmt_ctx;
+    InputFile ifile;
     int ret, i;
 
-    if ((ret = open_input_file(&fmt_ctx, filename)))
+    ret = open_input_file(&ifile, filename);
+    if (ret < 0)
         return ret;
 
     if (do_show_format)
-        show_format(fmt_ctx);
+        show_format(&ifile);
 
     if (do_show_streams) {
         probe_array_header("streams", 0);
-        for (i = 0; i < fmt_ctx->nb_streams; i++)
-            show_stream(fmt_ctx, i);
+        for (i = 0; i < ifile.nb_streams; i++)
+            show_stream(&ifile, &ifile.streams[i]);
         probe_array_footer("streams", 0);
     }
 
     if (do_show_packets)
-        show_packets(fmt_ctx);
+        show_packets(&ifile);
 
-    close_input_file(&fmt_ctx);
+    close_input_file(&ifile);
     return 0;
 }
 
@@ -919,6 +1018,23 @@ static int opt_show_format_entry(void *optctx, const char *opt, const char *arg)
     return 0;
 }
 
+static int opt_show_stream_entry(void *optctx, const char *opt, const char *arg)
+{
+    do_show_streams = 1;
+    nb_stream_entries_to_show++;
+    octx.print_header        = NULL;
+    octx.print_footer        = NULL;
+    octx.print_array_header  = show_stream_entry_header;
+    octx.print_array_footer  = show_stream_entry_footer;
+    octx.print_object_header = NULL;
+    octx.print_object_footer = NULL;
+
+    octx.print_integer = show_stream_entry_integer;
+    octx.print_string  = show_stream_entry_string;
+    av_dict_set(&stream_entries_to_show, arg, "", 0);
+    return 0;
+}
+
 static void opt_input_file(void *optctx, const char *arg)
 {
     if (input_filename) {
@@ -969,6 +1085,8 @@ static const OptionDef real_options[] = {
       "show a particular entry from the format/container info", "entry" },
     { "show_packets", OPT_BOOL, {&do_show_packets}, "show packets info" },
     { "show_streams", OPT_BOOL, {&do_show_streams}, "show streams info" },
+    { "show_stream_entry", HAS_ARG, {.func_arg = opt_show_stream_entry},
+      "show a particular entry from all streams", "entry" },
     { "default", HAS_ARG | OPT_AUDIO | OPT_VIDEO | OPT_EXPERT, {.func_arg = opt_default},
       "generic catch all option", "" },
     { NULL, },
@@ -1033,8 +1151,9 @@ int main(int argc, char **argv)
     ret = probe_file(input_filename);
     probe_footer();
     avio_flush(probe_out);
-    avio_close(probe_out);
-
+    av_freep(&probe_out);
+    av_freep(&buffer);
+    uninit_opts();
     avformat_network_deinit();
 
     return ret;

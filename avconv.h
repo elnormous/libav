@@ -55,6 +55,7 @@ enum HWAccelID {
     HWACCEL_DXVA2,
     HWACCEL_VDA,
     HWACCEL_QSV,
+    HWACCEL_VAAPI,
 };
 
 typedef struct HWAccel {
@@ -116,6 +117,8 @@ typedef struct OptionsContext {
     int        nb_hwaccels;
     SpecifierOpt *hwaccel_devices;
     int        nb_hwaccel_devices;
+    SpecifierOpt *hwaccel_output_formats;
+    int        nb_hwaccel_output_formats;
     SpecifierOpt *autorotate;
     int        nb_autorotate;
 
@@ -188,6 +191,8 @@ typedef struct OptionsContext {
     int        nb_pass;
     SpecifierOpt *passlogfiles;
     int        nb_passlogfiles;
+    SpecifierOpt *max_muxing_queue_size;
+    int        nb_max_muxing_queue_size;
 } OptionsContext;
 
 typedef struct InputFilter {
@@ -195,6 +200,21 @@ typedef struct InputFilter {
     struct InputStream *ist;
     struct FilterGraph *graph;
     uint8_t            *name;
+
+    AVFifoBuffer *frame_queue;
+
+    // parameters configured for this input
+    int format;
+
+    int width, height;
+    AVRational sample_aspect_ratio;
+
+    int sample_rate;
+    uint64_t channel_layout;
+
+    AVBufferRef *hw_frames_ctx;
+
+    int eof;
 } InputFilter;
 
 typedef struct OutputFilter {
@@ -206,6 +226,18 @@ typedef struct OutputFilter {
     /* temporary storage until stream maps are processed */
     AVFilterInOut       *out_tmp;
     enum AVMediaType     type;
+
+    /* desired output stream properties */
+    int width, height;
+    AVRational frame_rate;
+    int format;
+    int sample_rate;
+    uint64_t channel_layout;
+
+    // those are only set if no format is specified and the encoder gives us multiple options
+    int *formats;
+    uint64_t *channel_layouts;
+    int *sample_rates;
 } OutputFilter;
 
 typedef struct FilterGraph {
@@ -238,22 +270,18 @@ typedef struct InputStream {
     int64_t       last_dts;
     int64_t min_pts; /* pts with the smallest value in a current stream */
     int64_t max_pts; /* pts with the higher value in a current stream */
+
+    // when forcing constant input framerate through -r,
+    // this contains the pts that will be given to the next decoded frame
+    int64_t cfr_next_pts;
+
     int64_t nb_samples; /* number of samples in the last decoded audio frame before looping */
     PtsCorrectionContext pts_ctx;
     double ts_scale;
-    int showed_multi_packet_warning;
     AVDictionary *decoder_opts;
     AVRational framerate;               /* framerate forced with -r */
 
     int autorotate;
-    int resample_height;
-    int resample_width;
-    int resample_pix_fmt;
-
-    int      resample_sample_fmt;
-    int      resample_sample_rate;
-    int      resample_channels;
-    uint64_t resample_channel_layout;
 
     /* decoded data from this stream goes into all those filters
      * currently video and audio only */
@@ -263,6 +291,7 @@ typedef struct InputStream {
     /* hwaccel options */
     enum HWAccelID hwaccel_id;
     char  *hwaccel_device;
+    enum AVPixelFormat hwaccel_output_format;
 
     /* hwaccel context */
     enum HWAccelID active_hwaccel_id;
@@ -272,6 +301,7 @@ typedef struct InputStream {
     int  (*hwaccel_retrieve_data)(AVCodecContext *s, AVFrame *frame);
     enum AVPixelFormat hwaccel_pix_fmt;
     enum AVPixelFormat hwaccel_retrieved_pix_fmt;
+    AVBufferRef *hw_frames_ctx;
 
     /* stats */
     // combined size of all the packets read
@@ -327,7 +357,12 @@ typedef struct OutputStream {
     int64_t first_pts;
     /* dts of the last packet sent to the muxer */
     int64_t last_mux_dts;
-    AVBitStreamFilterContext *bitstream_filters;
+    // the timebase of the packets sent to the muxer
+    AVRational mux_timebase;
+
+    int                    nb_bitstream_filters;
+    AVBSFContext            **bsf_ctx;
+
     AVCodecContext *enc_ctx;
     AVCodec *enc;
     int64_t max_frames;
@@ -359,12 +394,19 @@ typedef struct OutputStream {
     AVDictionary *resample_opts;
     int finished;        /* no more packets should be written for this stream */
     int stream_copy;
+
+    // init_output_stream() has been called for this stream
+    // The encoder and the bistream filters have been initialized and the stream
+    // parameters are set in the AVStream.
+    int initialized;
+
     const char *attachment_filename;
     int copy_initial_nonkeyframes;
 
     enum AVPixelFormat pix_fmts[2];
 
     AVCodecParserContext *parser;
+    AVCodecContext       *parser_avctx;
 
     /* stats */
     // combined size of all the packets written
@@ -377,6 +419,11 @@ typedef struct OutputStream {
 
     /* packet quality factor */
     int quality;
+
+    int max_muxing_queue_size;
+
+    /* the packets are buffered here until the muxer is ready to be initialized */
+    AVFifoBuffer *muxing_queue;
 } OutputStream;
 
 typedef struct OutputFile {
@@ -388,6 +435,8 @@ typedef struct OutputFile {
     uint64_t limit_filesize;
 
     int shortest;
+
+    int header_written;
 } OutputFile;
 
 extern InputStream **input_streams;
@@ -426,6 +475,8 @@ extern const AVIOInterruptCB int_cb;
 extern const OptionDef options[];
 
 extern const HWAccel hwaccels[];
+extern int hwaccel_lax_profile_check;
+extern AVBufferRef *hw_device_ctx;
 
 void reset_options(OptionsContext *o);
 void show_usage(void);
@@ -439,8 +490,11 @@ int guess_input_channel_layout(InputStream *ist);
 int configure_filtergraph(FilterGraph *fg);
 int configure_output_filter(FilterGraph *fg, OutputFilter *ofilter, AVFilterInOut *out);
 int ist_in_filtergraph(FilterGraph *fg, InputStream *ist);
-FilterGraph *init_simple_filtergraph(InputStream *ist, OutputStream *ost);
+int filtergraph_is_simple(FilterGraph *fg);
+int init_simple_filtergraph(InputStream *ist, OutputStream *ost);
 int init_complex_filtergraph(FilterGraph *fg);
+
+int ifilter_parameters_from_frame(InputFilter *ifilter, const AVFrame *frame);
 
 int avconv_parse_options(int argc, char **argv);
 
@@ -449,5 +503,7 @@ int dxva2_init(AVCodecContext *s);
 int vda_init(AVCodecContext *s);
 int qsv_init(AVCodecContext *s);
 int qsv_transcode_init(OutputStream *ost);
+int vaapi_decode_init(AVCodecContext *avctx);
+int vaapi_device_init(const char *device);
 
 #endif /* AVCONV_H */

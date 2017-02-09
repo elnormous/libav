@@ -37,6 +37,7 @@
 #include "config.h"
 #include "attributes.h"
 #include "dict.h"
+#include "macros.h"
 #include "pixfmt.h"
 
 #if ARCH_X86
@@ -108,6 +109,12 @@
 #   define LOCAL_ALIGNED_16(t, v, ...) E1(LOCAL_ALIGNED_D(16, t, v, __VA_ARGS__,,))
 #else
 #   define LOCAL_ALIGNED_16(t, v, ...) LOCAL_ALIGNED(16, t, v, __VA_ARGS__)
+#endif
+
+#if HAVE_LOCAL_ALIGNED_32
+#   define LOCAL_ALIGNED_32(t, v, ...) E1(LOCAL_ALIGNED_D(32, t, v, __VA_ARGS__,,))
+#else
+#   define LOCAL_ALIGNED_32(t, v, ...) LOCAL_ALIGNED(32, t, v, __VA_ARGS__)
 #endif
 
 #define FF_ALLOC_OR_GOTO(ctx, p, size, label)\

@@ -37,7 +37,54 @@ endef
 
 DDS_OPTS_pal     = -sws_flags +accurate_rnd+bitexact -pix_fmt rgba
 DDS_OPTS_pal-ati = -sws_flags +accurate_rnd+bitexact -pix_fmt rgba
-DDS_FMT = argb argb-aexp dx10-bc1 dx10-bc1a dx10-bc2 dx10-bc3 dx10-bc4 dx10-bc5 dxt1 dxt1a dxt1-normalmap dxt2 dxt3 dxt4 dxt5 dxt5-aexp dxt5-normalmap dxt5-normalmap-ati dxt5-rbxg dxt5-rgxb dxt5-rxbg dxt5-rxgb dxt5-xgbr dxt5-xgxr dxt5-xrbg dxt5-ycocg dxt5-ycocg-scaled pal pal-ati rgb16 rgb24 rgba rgtc1s rgtc1u rgtc2s rgtc2u rgtc2u-xy uyvy xbgr xrgb y ya ycocg yuyv
+DDS_FMT          = alpha8                                               \
+                   argb                                                 \
+                   argb-aexp                                            \
+                   dx10-bc1                                             \
+                   dx10-bc1a                                            \
+                   dx10-bc2                                             \
+                   dx10-bc3                                             \
+                   dx10-bc4                                             \
+                   dx10-bc5                                             \
+                   dxt1                                                 \
+                   dxt1a                                                \
+                   dxt1-normalmap                                       \
+                   dxt2                                                 \
+                   dxt3                                                 \
+                   dxt4                                                 \
+                   dxt5                                                 \
+                   dxt5-aexp                                            \
+                   dxt5-normalmap                                       \
+                   dxt5-normalmap-ati                                   \
+                   dxt5-rbxg                                            \
+                   dxt5-rgxb                                            \
+                   dxt5-rxbg                                            \
+                   dxt5-rxgb                                            \
+                   dxt5-xgbr                                            \
+                   dxt5-xgxr                                            \
+                   dxt5-xrbg                                            \
+                   dxt5-ycocg                                           \
+                   dxt5-ycocg-scaled                                    \
+                   monob                                                \
+                   pal                                                  \
+                   pal-ati                                              \
+                   rgb1555                                              \
+                   rgb16                                                \
+                   rgb24                                                \
+                   rgb555                                               \
+                   rgba                                                 \
+                   rgtc1s                                               \
+                   rgtc1u                                               \
+                   rgtc2s                                               \
+                   rgtc2u                                               \
+                   rgtc2u-xy                                            \
+                   uyvy                                                 \
+                   xbgr                                                 \
+                   xrgb                                                 \
+                   y                                                    \
+                   ya                                                   \
+                   ycocg                                                \
+                   yuyv
 $(foreach FMT,$(DDS_FMT),$(eval $(call FATE_IMGSUITE_DDS,$(FMT))))
 
 FATE_DDS-$(call DEMDEC, IMAGE2, DDS) += $(FATE_DDS)
@@ -175,6 +222,9 @@ FATE_TIFF-$(call DEMDEC, IMAGE2, TIFF) += $(FATE_TIFF)
 
 FATE_SAMPLES_AVCONV += $(FATE_TIFF-yes)
 fate-tiff: $(FATE_TIFF-yes)
+
+FATE_SAMPLES_AVCONV-$(call DEMDEC, IMAGE2, WEBP) += fate-webp
+fate-webp: CMD = framecrc -i $(TARGET_SAMPLES)/webp/image_small.webp
 
 FATE_XBM += fate-xbm10
 fate-xbm10: CMD = framecrc -i $(TARGET_SAMPLES)/xbm/xl.xbm

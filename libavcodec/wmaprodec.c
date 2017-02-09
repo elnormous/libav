@@ -1145,7 +1145,7 @@ static int decode_subframe(WMAProDecodeCtx *s)
         int num_fill_bits;
         if (!(num_fill_bits = get_bits(&s->gb, 2))) {
             int len = get_bits(&s->gb, 4);
-            num_fill_bits = get_bits(&s->gb, len) + 1;
+            num_fill_bits = get_bitsz(&s->gb, len) + 1;
         }
 
         if (num_fill_bits >= 0) {
@@ -1455,7 +1455,7 @@ static void save_bits(WMAProDecodeCtx *s, GetBitContext* gb, int len,
     int buflen;
 
     /** when the frame data does not need to be concatenated, the input buffer
-        is resetted and additional bits from the previous frame are copyed
+        is reset and additional bits from the previous frame are copied
         and skipped later so that a fast byte copy is possible */
 
     if (!append) {

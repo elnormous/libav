@@ -1,5 +1,4 @@
 /*
- *
  * This file is part of Libav.
  *
  * Libav is free software; you can redistribute it and/or
@@ -29,8 +28,8 @@
 #include "libavutil/version.h"
 
 #define LIBAVCODEC_VERSION_MAJOR 57
-#define LIBAVCODEC_VERSION_MINOR  9
-#define LIBAVCODEC_VERSION_MICRO  1
+#define LIBAVCODEC_VERSION_MINOR 28
+#define LIBAVCODEC_VERSION_MICRO  4
 
 #define LIBAVCODEC_VERSION_INT  AV_VERSION_INT(LIBAVCODEC_VERSION_MAJOR, \
                                                LIBAVCODEC_VERSION_MINOR, \
@@ -48,6 +47,9 @@
  * the public API and may change, break or disappear at any time.
  */
 
+#ifndef FF_API_GETCHROMA
+#define FF_API_GETCHROMA         (LIBAVCODEC_VERSION_MAJOR < 58)
+#endif
 #ifndef FF_API_MISSING_SAMPLE
 #define FF_API_MISSING_SAMPLE    (LIBAVCODEC_VERSION_MAJOR < 58)
 #endif
@@ -179,6 +181,33 @@
 #endif
 #ifndef FF_API_RTP_CALLBACK
 #define FF_API_RTP_CALLBACK      (LIBAVCODEC_VERSION_MAJOR < 59)
+#endif
+#ifndef FF_API_VBV_DELAY
+#define FF_API_VBV_DELAY         (LIBAVCODEC_VERSION_MAJOR < 59)
+#endif
+#ifndef FF_API_CODER_TYPE
+#define FF_API_CODER_TYPE        (LIBAVCODEC_VERSION_MAJOR < 59)
+#endif
+#ifndef FF_API_STAT_BITS
+#define FF_API_STAT_BITS         (LIBAVCODEC_VERSION_MAJOR < 59)
+#endif
+#ifndef FF_API_NVENC_OLD_NAME
+#define FF_API_NVENC_OLD_NAME    (LIBAVCODEC_VERSION_MAJOR < 59)
+#endif
+#ifndef FF_API_PRIVATE_OPT
+#define FF_API_PRIVATE_OPT      (LIBAVCODEC_VERSION_MAJOR < 59)
+#endif
+#ifndef FF_API_OLD_BSF
+#define FF_API_OLD_BSF          (LIBAVCODEC_VERSION_MAJOR < 59)
+#endif
+#ifndef FF_API_COPY_CONTEXT
+#define FF_API_COPY_CONTEXT     (LIBAVCODEC_VERSION_MAJOR < 59)
+#endif
+#ifndef FF_API_GET_CONTEXT_DEFAULTS
+#define FF_API_GET_CONTEXT_DEFAULTS (LIBAVCODEC_VERSION_MAJOR < 59)
+#endif
+#ifndef FF_API_VAAPI_CONTEXT
+#define FF_API_VAAPI_CONTEXT    (LIBAVCODEC_VERSION_MAJOR < 59)
 #endif
 
 #endif /* AVCODEC_VERSION_H */

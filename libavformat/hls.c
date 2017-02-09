@@ -34,7 +34,6 @@
 #include "avformat.h"
 #include "internal.h"
 #include "avio_internal.h"
-#include "url.h"
 
 #define INITIAL_BUFFER_SIZE 32768
 
@@ -73,7 +72,7 @@ struct variant {
     char url[MAX_URL_SIZE];
     AVIOContext pb;
     uint8_t* read_buffer;
-    URLContext *input;
+    AVIOContext *input;
     AVFormatContext *parent;
     int index;
     AVFormatContext *ctx;
@@ -94,6 +93,7 @@ struct variant {
 };
 
 typedef struct HLSContext {
+    AVFormatContext *ctx;
     int n_variants;
     struct variant **variants;
     int cur_seq_no;
@@ -132,7 +132,7 @@ static void free_variant_list(HLSContext *c)
         av_packet_unref(&var->pkt);
         av_free(var->pb.buffer);
         if (var->input)
-            ffurl_close(var->input);
+            ff_format_io_close(c->ctx, &var->input);
         if (var->ctx) {
             var->ctx->pb = NULL;
             avformat_close_input(&var->ctx);
@@ -207,37 +207,21 @@ static int open_in(HLSContext *c, AVIOContext **in, const char *url)
 
     av_dict_copy(&tmp, c->avio_opts, 0);
 
-    ret = avio_open2(in, url, AVIO_FLAG_READ, c->interrupt_callback, &tmp);
+    ret = c->ctx->io_open(c->ctx, in, url, AVIO_FLAG_READ, &tmp);
 
     av_dict_free(&tmp);
     return ret;
 }
 
-static int url_connect(struct variant *var, AVDictionary *opts)
+static int open_url(AVFormatContext *s, AVIOContext **pb, const char *url,
+                    const AVDictionary *opts)
 {
     AVDictionary *tmp = NULL;
     int ret;
 
     av_dict_copy(&tmp, opts, 0);
 
-    if ((ret = av_opt_set_dict(var->input, &tmp)) < 0 ||
-        (ret = ffurl_connect(var->input, NULL)) < 0) {
-        ffurl_close(var->input);
-        var->input = NULL;
-    }
-
-    av_dict_free(&tmp);
-    return ret;
-}
-
-static int open_url(HLSContext *c, URLContext **uc, const char *url)
-{
-    AVDictionary *tmp = NULL;
-    int ret;
-
-    av_dict_copy(&tmp, c->avio_opts, 0);
-
-    ret = ffurl_open(uc, url, AVIO_FLAG_READ, c->interrupt_callback, &tmp);
+    ret = s->io_open(s, pb, url, AVIO_FLAG_READ, &tmp);
 
     av_dict_free(&tmp);
 
@@ -370,28 +354,29 @@ static int parse_playlist(HLSContext *c, const char *url,
 fail:
     av_free(new_url);
     if (close_in)
-        avio_close(in);
+        ff_format_io_close(c->ctx, &in);
     return ret;
 }
 
 static int open_input(struct variant *var)
 {
+    HLSContext *c = var->parent->priv_data;
     struct segment *seg = var->segments[var->cur_seq_no - var->start_seq_no];
     if (seg->key_type == KEY_NONE) {
-        return  open_url(var->parent->priv_data, &var->input, seg->url);
+        return open_url(var->parent, &var->input, seg->url, c->avio_opts);
     } else if (seg->key_type == KEY_AES_128) {
-        HLSContext *c = var->parent->priv_data;
+        AVDictionary *opts = NULL;
         char iv[33], key[33], url[MAX_URL_SIZE];
         int ret;
         if (strcmp(seg->key, var->key_url)) {
-            URLContext *uc;
-            if (open_url(var->parent->priv_data, &uc, seg->key) == 0) {
-                if (ffurl_read_complete(uc, var->key, sizeof(var->key))
-                    != sizeof(var->key)) {
+            AVIOContext *pb;
+            if (open_url(var->parent, &pb, seg->key, c->avio_opts) == 0) {
+                ret = avio_read(pb, var->key, sizeof(var->key));
+                if (ret != sizeof(var->key)) {
                     av_log(NULL, AV_LOG_ERROR, "Unable to read key file %s\n",
                            seg->key);
                 }
-                ffurl_close(uc);
+                ff_format_io_close(var->parent, &pb);
             } else {
                 av_log(NULL, AV_LOG_ERROR, "Unable to open key file %s\n",
                        seg->key);
@@ -405,13 +390,14 @@ static int open_input(struct variant *var)
             snprintf(url, sizeof(url), "crypto+%s", seg->url);
         else
             snprintf(url, sizeof(url), "crypto:%s", seg->url);
-        if ((ret = ffurl_alloc(&var->input, url, AVIO_FLAG_READ,
-                               &var->parent->interrupt_callback)) < 0)
-            return ret;
-        av_opt_set(var->input->priv_data, "key", key, 0);
-        av_opt_set(var->input->priv_data, "iv", iv, 0);
 
-        return url_connect(var, c->avio_opts);
+        av_dict_copy(&opts, c->avio_opts, 0);
+        av_dict_set(&opts, "key", key, 0);
+        av_dict_set(&opts, "iv", iv, 0);
+
+        ret = open_url(var->parent, &var->input, url, opts);
+        av_dict_free(&opts);
+        return ret;
     }
     return AVERROR(ENOSYS);
 }
@@ -462,11 +448,10 @@ reload:
         if (ret < 0)
             return ret;
     }
-    ret = ffurl_read(v->input, buf, buf_size);
+    ret = avio_read(v->input, buf, buf_size);
     if (ret > 0)
         return ret;
-    ffurl_close(v->input);
-    v->input = NULL;
+    ff_format_io_close(c->ctx, &v->input);
     v->cur_seq_no++;
 
     c->end_of_segment = 1;
@@ -492,7 +477,8 @@ reload:
 static int save_avio_options(AVFormatContext *s)
 {
     HLSContext *c = s->priv_data;
-    const char *opts[] = { "headers", "user_agent", NULL }, **opt = opts;
+    static const char *opts[] = { "headers", "user_agent", NULL };
+    const char **opt = opts;
     uint8_t *buf;
     int ret = 0;
 
@@ -509,11 +495,22 @@ static int save_avio_options(AVFormatContext *s)
     return ret;
 }
 
+static int nested_io_open(AVFormatContext *s, AVIOContext **pb, const char *url,
+                          int flags, AVDictionary **opts)
+{
+    av_log(s, AV_LOG_ERROR,
+           "A HLS playlist item '%s' referred to an external file '%s'. "
+           "Opening this file was forbidden for security reasons\n",
+           s->filename, url);
+    return AVERROR(EPERM);
+}
+
 static int hls_read_header(AVFormatContext *s)
 {
     HLSContext *c = s->priv_data;
     int ret = 0, i, j, stream_offset = 0;
 
+    c->ctx                = s;
     c->interrupt_callback = &s->interrupt_callback;
 
     if ((ret = parse_playlist(c, s->filename, NULL, s->pb)) < 0)
@@ -593,6 +590,7 @@ static int hls_read_header(AVFormatContext *s)
             goto fail;
         }
         v->ctx->pb       = &v->pb;
+        v->ctx->io_open  = nested_io_open;
         v->stream_offset = stream_offset;
         ret = avformat_open_input(&v->ctx, v->segments[0]->url, in_fmt, NULL);
         if (ret < 0)
@@ -620,7 +618,7 @@ static int hls_read_header(AVFormatContext *s)
             ff_program_add_stream_index(s, i, stream_offset + j);
             st->id = i;
             avpriv_set_pts_info(st, ist->pts_wrap_bits, ist->time_base.num, ist->time_base.den);
-            avcodec_copy_context(st->codec, v->ctx->streams[j]->codec);
+            avcodec_parameters_copy(st->codecpar, v->ctx->streams[j]->codecpar);
             if (v->bandwidth)
                 av_dict_set(&st->metadata, "variant_bitrate", bitrate_str,
                                  0);
@@ -663,8 +661,7 @@ static int recheck_discard_flags(AVFormatContext *s, int first)
             av_log(s, AV_LOG_INFO, "Now receiving variant %d\n", i);
         } else if (first && !v->cur_needed && v->needed) {
             if (v->input)
-                ffurl_close(v->input);
-            v->input = NULL;
+                ff_format_io_close(s, &v->input);
             v->needed = 0;
             changed = 1;
             av_log(s, AV_LOG_INFO, "No longer receiving variant %d\n", i);
@@ -811,10 +808,8 @@ static int hls_read_seek(AVFormatContext *s, int stream_index,
         struct variant *var = c->variants[i];
         int64_t pos = c->first_timestamp == AV_NOPTS_VALUE ?
                       0 : c->first_timestamp;
-        if (var->input) {
-            ffurl_close(var->input);
-            var->input = NULL;
-        }
+        if (var->input)
+            ff_format_io_close(s, &var->input);
         av_packet_unref(&var->pkt);
         reset_packet(&var->pkt);
         var->pb.eof_reached = 0;

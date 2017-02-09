@@ -67,6 +67,8 @@ typedef struct VP8EncoderContext {
     int error_resilient;
     int crf;
     int static_thresh;
+    int drop_threshold;
+    int noise_sensitivity;
 } VP8Context;
 
 /** String mappings for enum vp8e_enc_control_id */
@@ -212,6 +214,7 @@ static av_cold int vpx_init(AVCodecContext *avctx,
 {
     VP8Context *ctx = avctx->priv_data;
     struct vpx_codec_enc_cfg enccfg = { 0 };
+    AVCPBProperties *cpb_props;
     int res;
 
     av_log(avctx, AV_LOG_INFO, "%s\n", vpx_codec_version_str());
@@ -256,7 +259,14 @@ static av_cold int vpx_init(AVCodecContext *avctx,
         enccfg.rc_min_quantizer = avctx->qmin;
     if (avctx->qmax > 0)
         enccfg.rc_max_quantizer = avctx->qmax;
-    enccfg.rc_dropframe_thresh = avctx->frame_skip_threshold;
+
+#if FF_API_PRIVATE_OPT
+FF_DISABLE_DEPRECATION_WARNINGS
+    if (avctx->frame_skip_threshold)
+        ctx->drop_threshold = avctx->frame_skip_threshold;
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
+    enccfg.rc_dropframe_thresh = ctx->drop_threshold;
 
     //0-100 (0 => CBR, 100 => VBR)
     enccfg.rc_2pass_vbr_bias_pct           = round(avctx->qcompress * 100);
@@ -343,7 +353,13 @@ static av_cold int vpx_init(AVCodecContext *avctx,
         codecctl_int(avctx, VP8E_SET_ARNR_TYPE,        ctx->arnr_type);
 
     if (CONFIG_LIBVPX_VP8_ENCODER && iface == &vpx_codec_vp8_cx_algo) {
-        codecctl_int(avctx, VP8E_SET_NOISE_SENSITIVITY, avctx->noise_reduction);
+#if FF_API_PRIVATE_OPT
+FF_DISABLE_DEPRECATION_WARNINGS
+        if (avctx->noise_reduction)
+            ctx->noise_sensitivity = avctx->noise_reduction;
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
+        codecctl_int(avctx, VP8E_SET_NOISE_SENSITIVITY, ctx->noise_sensitivity);
         codecctl_int(avctx, VP8E_SET_TOKEN_PARTITIONS,  av_log2(avctx->slices));
     }
 #if FF_API_MPV_OPT
@@ -361,6 +377,18 @@ static av_cold int vpx_init(AVCodecContext *avctx,
     //provide dummy value to initialize wrapper, values will be updated each _encode()
     vpx_img_wrap(&ctx->rawimg, ff_vpx_pixfmt_to_imgfmt(avctx->pix_fmt),
                  avctx->width, avctx->height, 1, (unsigned char *)1);
+
+    cpb_props = ff_add_cpb_side_data(avctx);
+    if (!cpb_props)
+        return AVERROR(ENOMEM);
+
+    if (enccfg.rc_end_usage == VPX_CBR ||
+        enccfg.g_pass != VPX_RC_ONE_PASS) {
+        cpb_props->max_bitrate = avctx->rc_max_rate;
+        cpb_props->min_bitrate = avctx->rc_min_rate;
+        cpb_props->avg_bitrate = avctx->bit_rate;
+    }
+    cpb_props->buffer_size = avctx->rc_buffer_size;
 
     return 0;
 }
@@ -524,6 +552,16 @@ static int vp8_encode(AVCodecContext *avctx, AVPacket *pkt,
         rawimg->stride[VPX_PLANE_U] = frame->linesize[1];
         rawimg->stride[VPX_PLANE_V] = frame->linesize[2];
         timestamp                   = frame->pts;
+#if VPX_IMAGE_ABI_VERSION >= 4
+        switch (frame->color_range) {
+        case AVCOL_RANGE_MPEG:
+            rawimg->range = VPX_CR_STUDIO_RANGE;
+            break;
+        case AVCOL_RANGE_JPEG:
+            rawimg->range = VPX_CR_FULL_RANGE;
+            break;
+        }
+#endif
         if (frame->pict_type == AV_PICTURE_TYPE_I)
             flags |= VPX_EFLAG_FORCE_KF;
     }
@@ -581,6 +619,8 @@ static const AVOption options[] = {
 #endif
     { "crf",              "Select the quality for constant quality mode", offsetof(VP8Context, crf), AV_OPT_TYPE_INT, {.i64 = 0}, 0, 63, VE },
     { "static-thresh",    "A change threshold on blocks below which they will be skipped by the encoder", OFFSET(static_thresh), AV_OPT_TYPE_INT, { .i64 = 0 }, 0, INT_MAX, VE },
+    { "drop-threshold",   "Frame drop threshold", offsetof(VP8Context, drop_threshold), AV_OPT_TYPE_INT, {.i64 = 0 }, INT_MIN, INT_MAX, VE },
+    { "noise-sensitivity", "Noise sensitivity", OFFSET(noise_sensitivity), AV_OPT_TYPE_INT, {.i64 = 0 }, 0, 4, VE},
     { NULL }
 };
 

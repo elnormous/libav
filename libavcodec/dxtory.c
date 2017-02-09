@@ -22,14 +22,15 @@
 
 #include <inttypes.h>
 
+#include "libavutil/common.h"
+#include "libavutil/intreadwrite.h"
+
 #define BITSTREAM_READER_LE
 #include "avcodec.h"
 #include "bytestream.h"
 #include "get_bits.h"
 #include "internal.h"
 #include "unary.h"
-#include "libavutil/common.h"
-#include "libavutil/intreadwrite.h"
 
 static int dxtory_decode_v1_rgb(AVCodecContext *avctx, AVFrame *pic,
                                 const uint8_t *src, int src_size,
@@ -171,9 +172,9 @@ static int dxtory_decode_v1_444(AVCodecContext *avctx, AVFrame *pic,
     return 0;
 }
 
-const uint8_t def_lru[8] = { 0x00, 0x20, 0x40, 0x60, 0x80, 0xA0, 0xC0, 0xFF };
-const uint8_t def_lru_555[8] = { 0x00, 0x08, 0x10, 0x18, 0x1F };
-const uint8_t def_lru_565[8] = { 0x00, 0x08, 0x10, 0x20, 0x30, 0x3F };
+static const uint8_t def_lru[8] = { 0x00, 0x20, 0x40, 0x60, 0x80, 0xA0, 0xC0, 0xFF };
+static const uint8_t def_lru_555[8] = { 0x00, 0x08, 0x10, 0x18, 0x1F };
+static const uint8_t def_lru_565[8] = { 0x00, 0x08, 0x10, 0x20, 0x30, 0x3F };
 
 static inline uint8_t decode_sym(GetBitContext *gb, uint8_t lru[8])
 {
@@ -200,12 +201,12 @@ static int check_slice_size(AVCodecContext *avctx,
 
     if (slice_size > src_size - off) {
         av_log(avctx, AV_LOG_ERROR,
-               "invalid slice size %"PRIu32" (only %"PRIu32" bytes left)\n",
+               "invalid slice size %d (only %d bytes left)\n",
                slice_size, src_size - off);
         return AVERROR_INVALIDDATA;
     }
     if (slice_size <= 16) {
-        av_log(avctx, AV_LOG_ERROR, "invalid slice size %"PRIu32"\n",
+        av_log(avctx, AV_LOG_ERROR, "invalid slice size %d\n",
                slice_size);
         return AVERROR_INVALIDDATA;
     }
@@ -213,7 +214,7 @@ static int check_slice_size(AVCodecContext *avctx,
     cur_slice_size = AV_RL32(src + off);
     if (cur_slice_size != slice_size - 16) {
         av_log(avctx, AV_LOG_ERROR,
-               "Slice sizes mismatch: got %"PRIu32" instead of %"PRIu32"\n",
+               "Slice sizes mismatch: got %d instead of %d\n",
                cur_slice_size, slice_size - 16);
     }
 

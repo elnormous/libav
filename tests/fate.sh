@@ -37,7 +37,7 @@ checkout(){
 update()(
     cd ${src} || return
     case "$repo" in
-        git:*) git fetch --force; git reset --hard "origin/$branch" ;;
+        git:*) git fetch --quiet --force; git reset --quiet --hard "origin/$branch" ;;
     esac
 )
 
@@ -73,7 +73,7 @@ compile()(
 fate()(
     test "$build_only" = "yes" && return
     cd ${build} || return
-    ${make} ${makeopts} -k fate
+    ${make} ${makeopts_fate-${makeopts}} -k fate
 )
 
 clean(){
@@ -83,7 +83,7 @@ clean(){
 report(){
     date=$(date -u +%Y%m%d%H%M%S)
     echo "fate:1:${date}:${slot}:${version}:$1:$2:${branch}:${comment}" >report
-    cat ${build}/config.fate ${build}/tests/data/fate/*.rep >>report
+    cat ${build}/config.fate ${build}/tests/data/fate/*.rep >>report 2>/dev/null
     test -n "$fate_recv" && $tar report *.log | gzip | $fate_recv
 }
 

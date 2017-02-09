@@ -39,10 +39,10 @@ SECTION .text
 ;                                const int16_t *filter,
 ;                                const int32_t *filterPos, int filterSize);
 ;
-; Scale one horizontal line. Input is either 8-bits width or 16-bits width
+; Scale one horizontal line. Input is either 8-bit width or 16-bit width
 ; ($source_width can be either 8, 9, 10 or 16, difference is whether we have to
-; downscale before multiplying). Filter is 14-bits. Output is either 15bits
-; (in int16_t) or 19bits (in int32_t), as given in $intermediate_nbits. Each
+; downscale before multiplying). Filter is 14 bits. Output is either 15 bits
+; (in int16_t) or 19 bits (in int32_t), as given in $intermediate_nbits. Each
 ; output pixel is generated from $filterSize input pixels, the position of
 ; the first pixel is given in filterPos[nOutputPixel].
 ;-----------------------------------------------------------------------------
@@ -407,11 +407,13 @@ SCALE_FUNC %1, %2, X, X8, 7, %3
 SCALE_FUNCS  8, 15, %1
 SCALE_FUNCS  9, 15, %2
 SCALE_FUNCS 10, 15, %2
+SCALE_FUNCS 12, 15, %2
 SCALE_FUNCS 16, 15, %3
 %endif ; !sse4
 SCALE_FUNCS  8, 19, %1
 SCALE_FUNCS  9, 19, %2
 SCALE_FUNCS 10, 19, %2
+SCALE_FUNCS 12, 19, %2
 SCALE_FUNCS 16, 19, %3
 %endmacro
 

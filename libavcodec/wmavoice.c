@@ -1195,7 +1195,7 @@ static void aw_pulse_set1(WMAVoiceContext *s, GetBitContext *gb,
 /**
  * @}
  *
- * Generate a random number from frame_cntr and block_idx, which will lief
+ * Generate a random number from frame_cntr and block_idx, which will live
  * in the range [0, 1000 - block_size] (so it can be used as an index in a
  * table of size 1000 of which you want to read block_size entries).
  *
@@ -1518,7 +1518,7 @@ static int synth_frame(AVCodecContext *ctx, GetBitContext *gb, int frame_idx,
             /* Pitch is given per block. Per-block pitches are encoded as an
              * absolute value for the first block, and then delta values
              * relative to this value) for all subsequent blocks. The scale of
-             * this pitch value is semi-logaritmic compared to its use in the
+             * this pitch value is semi-logarithmic compared to its use in the
              * decoder, so we convert it to normal scale also. */
             int block_pitch,
                 t1 = (s->block_conv_table[1] - s->block_conv_table[0]) << 2,
@@ -1672,9 +1672,7 @@ static int check_bits_for_superframe(GetBitContext *orig_gb,
     const struct frame_type_desc *frame_desc;
 
     /* initialize a copy */
-    init_get_bits(gb, orig_gb->buffer, orig_gb->size_in_bits);
-    skip_bits_long(gb, get_bits_count(orig_gb));
-    assert(get_bits_left(gb) == get_bits_left(orig_gb));
+    *gb = *orig_gb;
 
     /* superframe header */
     if (get_bits_left(gb) < 14)

@@ -343,7 +343,8 @@ avconv -i myfile.avi -target vcd -bf 2 /tmp/vcd.mpg
 @end example
 
 @item -dframes @var{number} (@emph{output})
-Set the number of data frames to record. This is an alias for @code{-frames:d}.
+Set the number of data frames to record. This is an obsolete alias for
+@code{-frames:d}, which you should use instead.
 
 @item -frames[:@var{stream_specifier}] @var{framecount} (@emph{output,per-stream})
 Stop writing to the stream after @var{framecount} frames.
@@ -414,7 +415,8 @@ Disable automatically rotating video based on file metadata.
 
 @table @option
 @item -vframes @var{number} (@emph{output})
-Set the number of video frames to record. This is an alias for @code{-frames:v}.
+Set the number of video frames to record. This is an obsolete alias for
+@code{-frames:v}, which you should use instead.
 @item -r[:@var{stream_specifier}] @var{fps} (@emph{input/output,per-stream})
 Set frame rate (Hz value, fraction or abbreviation).
 
@@ -641,7 +643,7 @@ For DXVA2, this option should contain the number of the display adapter to use.
 If this option is not specified, the default adapter is used.
 
 @item qsv
-For QSV, this option corresponds to the valus of MFX_IMPL_* . Allowed values
+For QSV, this option corresponds to the values of MFX_IMPL_* . Allowed values
 are:
 @table @option
 @item auto
@@ -664,7 +666,8 @@ List all hardware acceleration methods supported in this build of avconv.
 
 @table @option
 @item -aframes @var{number} (@emph{output})
-Set the number of audio frames to record. This is an alias for @code{-frames:a}.
+Set the number of audio frames to record. This is an obsolete alias for
+@code{-frames:a}, which you should use instead.
 @item -ar[:@var{stream_specifier}] @var{freq} (@emph{input/output,per-stream})
 Set the audio sampling frequency. For output streams it is set by
 default to the frequency of the corresponding input stream. For input
@@ -886,7 +889,7 @@ avconv -i infile -streamid 0:33 -streamid 1:36 out.ts
 @end example
 
 @item -bsf[:@var{stream_specifier}] @var{bitstream_filters} (@emph{output,per-stream})
-Set bitstream filters for matching streams. @var{bistream_filters} is
+Set bitstream filters for matching streams. @var{bitstream_filters} is
 a comma-separated list of bitstream filters. Use the @code{-bsfs} option
 to get the list of bitstream filters.
 @example
@@ -955,6 +958,15 @@ This option enables or disables accurate seeking in input files with the
 @option{-ss} option. It is enabled by default, so seeking is accurate when
 transcoding. Use @option{-noaccurate_seek} to disable it, which may be useful
 e.g. when copying some streams and transcoding the others.
+
+@item -max_muxing_queue_size @var{packets} (@emph{output,per-stream})
+When transcoding audio and/or video streams, avconv will not begin writing into
+the output until it has one packet for each such stream. While waiting for that
+to happen, packets for other streams are buffered. This option sets the size of
+this buffer, in packets, for the matching output stream.
+
+The default value of this option should be high enough for most uses, so only
+touch this option if you are sure that you need it.
 
 @end table
 @c man end OPTIONS
@@ -1155,8 +1167,8 @@ output them in files named @file{foo-001.jpeg}, @file{foo-002.jpeg},
 etc. Images will be rescaled to fit the new WxH values.
 
 If you want to extract just a limited number of frames, you can use the
-above command in combination with the -vframes or -t option, or in
-combination with -ss to start extracting from a certain point in time.
+above command in combination with the @code{-frames:v} or @code{-t} option,
+or in combination with -ss to start extracting from a certain point in time.
 
 For creating a video from many images:
 @example

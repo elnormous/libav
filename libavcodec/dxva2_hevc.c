@@ -22,7 +22,8 @@
 
 #include "libavutil/avassert.h"
 
-#include "hevc.h"
+#include "hevc_data.h"
+#include "hevcdec.h"
 
 // The headers above may include w32threads.h, which uses the original
 // _WIN32_WINNT define, while dxva2_internal.h redefines it to target a
@@ -96,7 +97,7 @@ static void fill_picture_parameters(const AVCodecContext *avctx, AVDXVAContext *
     pp->init_qp_minus26                          = pps->pic_init_qp_minus26;
 
     if (h->sh.short_term_ref_pic_set_sps_flag == 0 && h->sh.short_term_rps) {
-        pp->ucNumDeltaPocsOfRefRpsIdx            = h->sh.short_term_rps->num_delta_pocs;
+        pp->ucNumDeltaPocsOfRefRpsIdx            = h->sh.short_term_rps->rps_idx_num_delta_pocs;
         pp->wNumBitsForShortTermRPSInSlice       = h->sh.short_term_ref_pic_set_size;
     }
 

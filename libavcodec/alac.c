@@ -29,20 +29,20 @@
  * passed through the extradata[_size] fields. This atom is tacked onto
  * the end of an 'alac' stsd atom and has the following format:
  *
- * 32bit  atom size
- * 32bit  tag                  ("alac")
- * 32bit  tag version          (0)
- * 32bit  samples per frame    (used when not set explicitly in the frames)
- *  8bit  compatible version   (0)
- *  8bit  sample size
- *  8bit  history mult         (40)
- *  8bit  initial history      (14)
- *  8bit  rice param limit     (10)
- *  8bit  channels
- * 16bit  maxRun               (255)
- * 32bit  max coded frame size (0 means unknown)
- * 32bit  average bitrate      (0 means unknown)
- * 32bit  samplerate
+ * 32 bits  atom size
+ * 32 bits  tag                  ("alac")
+ * 32 bits  tag version          (0)
+ * 32 bits  samples per frame    (used when not set explicitly in the frames)
+ *  8 bits  compatible version   (0)
+ *  8 bits  sample size
+ *  8 bits  history mult         (40)
+ *  8 bits  initial history      (14)
+ *  8 bits  rice param limit     (10)
+ *  8 bits  channels
+ * 16 bits  maxRun               (255)
+ * 32 bits  max coded frame size (0 means unknown)
+ * 32 bits  average bitrate      (0 means unknown)
+ * 32 bits  samplerate
  */
 
 #include <inttypes.h>
@@ -266,7 +266,7 @@ static int decode_element(AVCodecContext *avctx, AVFrame *frame, int ch_index,
     alac->extra_bits = get_bits(&alac->gb, 2) << 3;
     bps = alac->sample_size - alac->extra_bits + channels - 1;
     if (bps > 32) {
-        av_log(avctx, AV_LOG_ERROR, "bps is unsupported: %d\n", bps);
+        avpriv_report_missing_feature(avctx, "bps %d", bps);
         return AVERROR_PATCHWELCOME;
     }
 
@@ -424,7 +424,7 @@ static int alac_decode_frame(AVCodecContext *avctx, void *data,
             break;
         }
         if (element > TYPE_CPE && element != TYPE_LFE) {
-            av_log(avctx, AV_LOG_ERROR, "syntax element unsupported: %d", element);
+            avpriv_report_missing_feature(avctx, "Syntax element %d", element);
             return AVERROR_PATCHWELCOME;
         }
 
@@ -445,6 +445,10 @@ static int alac_decode_frame(AVCodecContext *avctx, void *data,
     }
     if (!got_end) {
         av_log(avctx, AV_LOG_ERROR, "no end tag found. incomplete packet.\n");
+        return AVERROR_INVALIDDATA;
+    }
+    if (!alac->nb_samples) {
+        av_log(avctx, AV_LOG_ERROR, "No decodable data in the packet\n");
         return AVERROR_INVALIDDATA;
     }
 
@@ -564,8 +568,8 @@ static av_cold int alac_decode_init(AVCodecContext * avctx)
             avctx->channels = alac->channels;
     }
     if (avctx->channels > ALAC_MAX_CHANNELS) {
-        av_log(avctx, AV_LOG_ERROR, "Unsupported channel count: %d\n",
-               avctx->channels);
+        avpriv_report_missing_feature(avctx, "Channel count %d",
+                                      avctx->channels);
         return AVERROR_PATCHWELCOME;
     }
     avctx->channel_layout = ff_alac_channel_layouts[alac->channels - 1];

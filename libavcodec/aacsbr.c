@@ -130,7 +130,7 @@ av_cold void ff_aac_sbr_init(void)
 /** Places SBR in pure upsampling mode. */
 static void sbr_turnoff(SpectralBandReplication *sbr) {
     sbr->start = 0;
-    // Init defults used in pure upsampling mode
+    // Init defaults used in pure upsampling mode
     sbr->kx[1] = 32; //Typo in spec, kx' inits to 32
     sbr->m[1] = 0;
     // Reset values for first SBR header
@@ -918,14 +918,8 @@ static void read_sbr_extension(AACContext *ac, SpectralBandReplication *sbr,
             skip_bits_long(gb, *num_bits_left); // bs_fill_bits
             *num_bits_left = 0;
         } else {
-#if 1
             *num_bits_left -= ff_ps_read_data(ac->avctx, gb, &sbr->ps, *num_bits_left);
             ac->avctx->profile = FF_PROFILE_AAC_HE_V2;
-#else
-            avpriv_report_missing_feature(ac->avctx, "Parametric Stereo");
-            skip_bits_long(gb, *num_bits_left); // bs_fill_bits
-            *num_bits_left = 0;
-#endif
         }
         break;
     default:

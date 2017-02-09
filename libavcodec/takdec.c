@@ -27,11 +27,13 @@
 
 #include "libavutil/internal.h"
 #include "libavutil/samplefmt.h"
-#include "tak.h"
+
+#define BITSTREAM_READER_LE
 #include "audiodsp.h"
 #include "avcodec.h"
 #include "internal.h"
 #include "unary.h"
+#include "tak.h"
 
 #define MAX_SUBFRAMES     8                         // max number of subframes per channel
 #define MAX_PREDICTORS  256
@@ -700,7 +702,7 @@ static int tak_decode_frame(AVCodecContext *avctx, void *data,
 
     if (s->ti.codec != TAK_CODEC_MONO_STEREO &&
         s->ti.codec != TAK_CODEC_MULTICHANNEL) {
-        av_log(avctx, AV_LOG_ERROR, "unsupported codec: %d\n", s->ti.codec);
+        avpriv_report_missing_feature(avctx, "TAK codec type %d", s->ti.codec);
         return AVERROR_PATCHWELCOME;
     }
     if (s->ti.data_type) {
@@ -806,6 +808,12 @@ static int tak_decode_frame(AVCodecContext *avctx, void *data,
                     if (s->mcdparams[i].present) {
                         s->mcdparams[i].index = get_bits(gb, 2);
                         s->mcdparams[i].chan2 = get_bits(gb, 4);
+                        if (s->mcdparams[i].chan2 >= avctx->channels) {
+                            av_log(avctx, AV_LOG_ERROR,
+                                   "invalid channel 2 (%d) for %d channel(s)\n",
+                                   s->mcdparams[i].chan2, avctx->channels);
+                            return AVERROR_INVALIDDATA;
+                        }
                         if (s->mcdparams[i].index == 1) {
                             if ((nbit == s->mcdparams[i].chan2) ||
                                 (ch_mask & 1 << s->mcdparams[i].chan2))

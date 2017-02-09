@@ -1,5 +1,4 @@
 /*
- *
  * This file is part of Libav.
  *
  * Libav is free software; you can redistribute it and/or
@@ -45,7 +44,7 @@ typedef struct ThreadContext {
     pthread_t *workers;
     avfilter_action_func *func;
 
-    /* per-execute perameters */
+    /* per-execute parameters */
     AVFilterContext *ctx;
     void *arg;
     int   *rets;

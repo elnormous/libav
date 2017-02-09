@@ -130,7 +130,7 @@ static void qtrle_encode_line(QtrleEncContext *s, const AVFrame *p, int line, ui
 
     /* We will use it to compute the best bulk copy sequence */
     unsigned int bulkcount;
-    /* This will be the number of pixels equal to the preivous frame one's
+    /* This will be the number of pixels equal to the previous frame one's
      * starting from the ith pixel */
     unsigned int skipcount;
     /* This will be the number of consecutive equal pixels in the current
@@ -214,7 +214,7 @@ static void qtrle_encode_line(QtrleEncContext *s, const AVFrame *p, int line, ui
         prev_line -= s->pixel_size;
     }
 
-    /* Good ! Now we have the best sequence for this line, let's ouput it */
+    /* Good! Now we have the best sequence for this line, let's output it. */
 
     /* We do a special case for the first pixel so that we avoid testing it in
      * the whole loop */
@@ -297,7 +297,9 @@ static int qtrle_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
                               const AVFrame *pict, int *got_packet)
 {
     QtrleEncContext * const s = avctx->priv_data;
+#if FF_API_CODED_FRAME
     enum AVPictureType pict_type;
+#endif
     int ret;
 
     if ((ret = ff_alloc_packet(pkt, s->max_buf_size)) < 0) {
@@ -308,11 +310,15 @@ static int qtrle_encode_frame(AVCodecContext *avctx, AVPacket *pkt,
 
     if (avctx->gop_size == 0 || (s->avctx->frame_number % avctx->gop_size) == 0) {
         /* I-Frame */
+#if FF_API_CODED_FRAME
         pict_type = AV_PICTURE_TYPE_I;
+#endif
         s->key_frame = 1;
     } else {
         /* P-Frame */
+#if FF_API_CODED_FRAME
         pict_type = AV_PICTURE_TYPE_P;
+#endif
         s->key_frame = 0;
     }
 

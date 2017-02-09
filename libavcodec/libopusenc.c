@@ -2,20 +2,20 @@
  * Opus encoder using libopus
  * Copyright (c) 2012 Nathan Caldwell
  *
- * This file is part of libav.
+ * This file is part of Libav.
  *
- * libav is free software; you can redistribute it and/or
+ * Libav is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
  * License as published by the Free Software Foundation; either
  * version 2.1 of the License, or (at your option) any later version.
  *
- * libav is distributed in the hope that it will be useful,
+ * Libav is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * Lesser General Public License for more details.
  *
  * You should have received a copy of the GNU Lesser General Public
- * License along with libav; if not, write to the Free Software
+ * License along with Libav; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
@@ -164,8 +164,9 @@ static int av_cold libopus_encode_init(AVCodecContext *avctx)
     /* FIXME: Opus can handle up to 255 channels. However, the mapping for
      * anything greater than 8 is undefined. */
     if (avctx->channels > 8) {
-        av_log(avctx, AV_LOG_ERROR,
-               "Channel layout undefined for %d channels.\n", avctx->channels);
+        avpriv_report_missing_feature(avctx,
+                                      "Undefined channel layout for %d channels",
+                                      avctx->channels);
         return AVERROR_PATCHWELCOME;
     }
     if (!avctx->bit_rate) {

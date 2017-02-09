@@ -28,10 +28,11 @@
 #include <stdlib.h>
 
 #include "libavutil/intreadwrite.h"
+
 #include "avcodec.h"
+#include "bitstream.h"
 #include "bswapdsp.h"
 #include "bytestream.h"
-#include "get_bits.h"
 #include "thread.h"
 #include "utvideo.h"
 
@@ -78,14 +79,14 @@ static int build_huff(const uint8_t *src, VLC *vlc, int *fsym)
 }
 
 static int decode_plane(UtvideoContext *c, int plane_no,
-                        uint8_t *dst, int step, int stride,
+                        uint8_t *dst, int step, ptrdiff_t stride,
                         int width, int height,
                         const uint8_t *src, int use_pred)
 {
     int i, j, slice, pix;
     int sstart, send;
     VLC vlc;
-    GetBitContext gb;
+    BitstreamContext bc;
     int prev, fsym;
     const int cmask = ~(!plane_no && c->avctx->pix_fmt == AV_PIX_FMT_YUV420P);
 
@@ -146,17 +147,17 @@ static int decode_plane(UtvideoContext *c, int plane_no,
         c->bdsp.bswap_buf((uint32_t *) c->slice_bits,
                           (uint32_t *) c->slice_bits,
                           (slice_data_end - slice_data_start + 3) >> 2);
-        init_get_bits(&gb, c->slice_bits, slice_size * 8);
+        bitstream_init(&bc, c->slice_bits, slice_size * 8);
 
         prev = 0x80;
         for (j = sstart; j < send; j++) {
             for (i = 0; i < width * step; i += step) {
-                if (get_bits_left(&gb) <= 0) {
+                if (bitstream_bits_left(&bc) <= 0) {
                     av_log(c->avctx, AV_LOG_ERROR,
                            "Slice decoding ran out of bits\n");
                     goto fail;
                 }
-                pix = get_vlc2(&gb, vlc.table, vlc.bits, 4);
+                pix = bitstream_read_vlc(&bc, vlc.table, vlc.bits, 4);
                 if (pix < 0) {
                     av_log(c->avctx, AV_LOG_ERROR, "Decoding error\n");
                     goto fail;
@@ -169,9 +170,9 @@ static int decode_plane(UtvideoContext *c, int plane_no,
             }
             dest += stride;
         }
-        if (get_bits_left(&gb) > 32)
+        if (bitstream_bits_left(&bc) > 32)
             av_log(c->avctx, AV_LOG_WARNING,
-                   "%d bits left after decoding slice\n", get_bits_left(&gb));
+                   "%d bits left after decoding slice\n", bitstream_bits_left(&bc));
     }
 
     ff_free_vlc(&vlc);
@@ -182,8 +183,8 @@ fail:
     return AVERROR_INVALIDDATA;
 }
 
-static void restore_rgb_planes(uint8_t *src, int step, int stride, int width,
-                               int height)
+static void restore_rgb_planes(uint8_t *src, int step, ptrdiff_t stride,
+                               int width, int height)
 {
     int i, j;
     uint8_t r, g, b;
@@ -200,7 +201,7 @@ static void restore_rgb_planes(uint8_t *src, int step, int stride, int width,
     }
 }
 
-static void restore_median(uint8_t *src, int step, int stride,
+static void restore_median(uint8_t *src, int step, ptrdiff_t stride,
                            int width, int height, int slices, int rmode)
 {
     int i, j, slice;
@@ -256,7 +257,7 @@ static void restore_median(uint8_t *src, int step, int stride,
  * so restoring function should take care of possible padding between
  * two parts of the same "line".
  */
-static void restore_median_il(uint8_t *src, int step, int stride,
+static void restore_median_il(uint8_t *src, int step, ptrdiff_t stride,
                               int width, int height, int slices, int rmode)
 {
     int i, j, slice;
@@ -264,7 +265,7 @@ static void restore_median_il(uint8_t *src, int step, int stride,
     uint8_t *bsrc;
     int slice_start, slice_height;
     const int cmask   = ~(rmode ? 3 : 1);
-    const int stride2 = stride << 1;
+    const ptrdiff_t stride2 = stride << 1;
 
     for (slice = 0; slice < slices; slice++) {
         slice_start    = ((slice * height) / slices) & cmask;

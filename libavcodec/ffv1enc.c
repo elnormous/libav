@@ -31,9 +31,9 @@
 #include "libavutil/crc.h"
 #include "libavutil/opt.h"
 #include "libavutil/imgutils.h"
+
 #include "avcodec.h"
 #include "internal.h"
-#include "get_bits.h"
 #include "put_bits.h"
 #include "rangecoder.h"
 #include "golomb.h"
@@ -151,14 +151,7 @@ static inline void put_vlc_symbol(PutBitContext *pb, VlcState *const state,
 
     assert(k <= 13);
 
-#if 0 // JPEG LS
-    if (k == 0 && 2 * state->drift <= -state->count)
-        code = v ^ (-1);
-    else
-        code = v;
-#else
     code = v ^ ((2 * state->drift + state->count) >> 31);
-#endif
 
     ff_dlog(NULL, "v:%d/%d bias:%d error:%d drift:%d count:%d k:%d\n", v, code,
             state->bias, state->error_sum, state->drift, state->count, k);
@@ -261,7 +254,7 @@ static void encode_plane(FFV1Context *s, uint8_t *src, int w, int h,
                          int stride, int plane_index)
 {
     int x, y, i;
-    const int ring_size = s->avctx->context_model ? 3 : 2;
+    const int ring_size = s->context_model ? 3 : 2;
     int16_t *sample[3];
     s->run_index = 0;
 
@@ -297,7 +290,7 @@ static void encode_rgb_frame(FFV1Context *s, const uint8_t *src[3],
                              int w, int h, const int stride[3])
 {
     int x, y, p, i;
-    const int ring_size = s->avctx->context_model ? 3 : 2;
+    const int ring_size = s->context_model ? 3 : 2;
     int16_t *sample[MAX_PLANES][3];
     int lbd  = s->avctx->bits_per_raw_sample <= 8;
     int bits = s->avctx->bits_per_raw_sample > 0
@@ -380,7 +373,7 @@ static void write_quant_tables(RangeCoder *c,
 static void write_header(FFV1Context *f)
 {
     uint8_t state[CONTEXT_SIZE];
-    int i, j;
+    int i;
     RangeCoder *const c = &f->slice_context[0]->c;
 
     memset(state, 128, sizeof(state));
@@ -402,25 +395,6 @@ static void write_header(FFV1Context *f)
         put_rac(c, state, f->transparency);
 
         write_quant_tables(c, f->quant_table);
-    } else if (f->version < 3) {
-        put_symbol(c, state, f->slice_count, 0);
-        for (i = 0; i < f->slice_count; i++) {
-            FFV1Context *fs = f->slice_context[i];
-            put_symbol(c, state,
-                       (fs->slice_x      + 1) * f->num_h_slices / f->width, 0);
-            put_symbol(c, state,
-                       (fs->slice_y      + 1) * f->num_v_slices / f->height, 0);
-            put_symbol(c, state,
-                       (fs->slice_width  + 1) * f->num_h_slices / f->width - 1,
-                       0);
-            put_symbol(c, state,
-                       (fs->slice_height + 1) * f->num_v_slices / f->height - 1,
-                       0);
-            for (j = 0; j < f->plane_count; j++) {
-                put_symbol(c, state, f->plane[j].quant_table_index, 0);
-                av_assert0(f->plane[j].quant_table_index == f->avctx->context_model);
-            }
-        }
     }
 }
 
@@ -442,7 +416,7 @@ static int write_extradata(FFV1Context *f)
     ff_build_rac_states(c, 0.05 * (1LL << 32), 256 - 8);
 
     put_symbol(c, state, f->version, 0);
-    if (f->version > 2) {
+    if (f->version > 1) {
         if (f->version == 3)
             f->minor_version = 2;
         put_symbol(c, state, f->minor_version, 0);
@@ -566,28 +540,50 @@ static av_cold int ffv1_encode_init(AVCodecContext *avctx)
 
     s->version = 0;
 
-    if ((avctx->flags & (AV_CODEC_FLAG_PASS1 | AV_CODEC_FLAG_PASS2)) ||
-        avctx->slices > 1)
-        s->version = FFMAX(s->version, 2);
-
-    if (avctx->level == 3) {
-        s->version = 3;
+    switch (avctx->level) {
+    case 3:
+        break;
+    case 2:
+        av_log(avctx, AV_LOG_ERROR,
+               "Version 2 had been deemed non-standard and deprecated "
+               "the support for it had been removed\n");
+        return AVERROR(ENOSYS);
+    case 1:
+    case 0:
+        if (avctx->flags & (AV_CODEC_FLAG_PASS1 | AV_CODEC_FLAG_PASS2)) {
+            av_log(avctx, AV_LOG_ERROR,
+                   "Multiple pass encoding requires version 3.\n");
+            return AVERROR(ENOSYS);
+        }
+        if (avctx->slices > 1) {
+            av_log(avctx, AV_LOG_ERROR,
+                   "Multiple slices support requires version 3.\n");
+            return AVERROR(ENOSYS);
+        }
+        break;
+    case FF_LEVEL_UNKNOWN:
+        if ((avctx->flags & (AV_CODEC_FLAG_PASS1 | AV_CODEC_FLAG_PASS2)) ||
+            avctx->slices > 1)
+            s->version = 3;
+        else
+            s->version = 0;
+        break;
+    default:
+        av_log(avctx, AV_LOG_ERROR, "Version %d not supported\n",
+               avctx->level);
+        return AVERROR(ENOSYS);
     }
 
     if (s->ec < 0) {
         s->ec = (s->version >= 3);
     }
 
-    if (s->version >= 2 &&
-        avctx->strict_std_compliance > FF_COMPLIANCE_EXPERIMENTAL) {
-        av_log(avctx, AV_LOG_ERROR,
-               "Version %d requested, please set -strict experimental in "
-               "order to enable it\n",
-               s->version);
-        return AVERROR(ENOSYS);
-    }
-
-    s->ac = avctx->coder_type > 0 ? AC_RANGE_CUSTOM_TAB : AC_GOLOMB_RICE;
+#if FF_API_CODER_TYPE
+FF_DISABLE_DEPRECATION_WARNINGS
+    if (avctx->coder_type != -1)
+        s->ac = avctx->coder_type > 0 ? AC_RANGE_CUSTOM_TAB : AC_GOLOMB_RICE;
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
 
     s->plane_count = 3;
     switch (avctx->pix_fmt) {
@@ -666,12 +662,18 @@ static av_cold int ffv1_encode_init(AVCodecContext *avctx)
             avctx, AV_LOG_WARNING,
             "Storing alpha plane, this will require a recent FFV1 decoder to playback!\n");
     }
+#if FF_API_PRIVATE_OPT
+FF_DISABLE_DEPRECATION_WARNINGS
+    if (avctx->context_model)
+        s->context_model = avctx->context_model;
     if (avctx->context_model > 1U) {
         av_log(avctx, AV_LOG_ERROR,
                "Invalid context model %d, valid values are 0 and 1\n",
                avctx->context_model);
         return AVERROR(EINVAL);
     }
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
 
     if (s->ac == AC_RANGE_CUSTOM_TAB)
         for (i = 1; i < 256; i++)
@@ -701,14 +703,14 @@ static av_cold int ffv1_encode_init(AVCodecContext *avctx)
     }
     s->context_count[0] = (11 * 11 * 11        + 1) / 2;
     s->context_count[1] = (11 * 11 * 5 * 5 * 5 + 1) / 2;
-    memcpy(s->quant_table, s->quant_tables[avctx->context_model],
+    memcpy(s->quant_table, s->quant_tables[s->context_model],
            sizeof(s->quant_table));
 
     for (i = 0; i < s->plane_count; i++) {
         PlaneContext *const p = &s->plane[i];
 
         memcpy(p->quant_table, s->quant_table, sizeof(p->quant_table));
-        p->quant_table_index = avctx->context_model;
+        p->quant_table_index = s->context_model;
         p->context_count     = s->context_count[p->quant_table_index];
     }
 
@@ -743,7 +745,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
         int gob_count = 0;
         char *next;
 
-        av_assert0(s->version >= 2);
+        av_assert0(s->version > 2);
 
         for (;; ) {
             for (j = 0; j < 256; j++)
@@ -855,7 +857,7 @@ static void encode_slice_header(FFV1Context *f, FFV1Context *fs)
                0);
     for (j = 0; j < f->plane_count; j++) {
         put_symbol(c, state, f->plane[j].quant_table_index, 0);
-        av_assert0(f->plane[j].quant_table_index == f->avctx->context_model);
+        av_assert0(f->plane[j].quant_table_index == f->context_model);
     }
     if (!f->frame->interlaced_frame)
         put_symbol(c, state, 3, 0);
@@ -892,8 +894,8 @@ static int encode_slice(AVCodecContext *c, void *arg)
     }
 
     if (f->colorspace == 0) {
-        const int chroma_width  = -((-width) >> f->chroma_h_shift);
-        const int chroma_height = -((-height) >> f->chroma_v_shift);
+        const int chroma_width  = AV_CEIL_RSHIFT(width,  f->chroma_h_shift);
+        const int chroma_height = AV_CEIL_RSHIFT(height, f->chroma_v_shift);
         const int cx            = x >> f->chroma_h_shift;
         const int cy            = y >> f->chroma_v_shift;
 
@@ -1068,6 +1070,17 @@ static av_cold int ffv1_encode_close(AVCodecContext *avctx)
 static const AVOption options[] = {
     { "slicecrc", "Protect slices with CRCs", OFFSET(ec), AV_OPT_TYPE_INT,
              { .i64 = -1 }, -1, 1, VE },
+    { "coder", "Coder type", OFFSET(ac), AV_OPT_TYPE_INT,
+            { .i64 = AC_GOLOMB_RICE }, 0, 2, VE, "coder" },
+        { "rice", "Golomb rice", 0, AV_OPT_TYPE_CONST,
+            { .i64 = AC_GOLOMB_RICE }, INT_MIN, INT_MAX, VE, "coder" },
+        { "range_def", "Range with default table", 0, AV_OPT_TYPE_CONST,
+            { .i64 = AC_RANGE_DEFAULT_TAB }, INT_MIN, INT_MAX, VE, "coder" },
+        { "range_tab", "Range with custom table", 0, AV_OPT_TYPE_CONST,
+            { .i64 = AC_RANGE_CUSTOM_TAB }, INT_MIN, INT_MAX, VE, "coder" },
+    { "context", "Context model", OFFSET(context_model), AV_OPT_TYPE_INT,
+            { .i64 = 0 }, 0, 1, VE },
+
     { NULL }
 };
 
@@ -1078,10 +1091,12 @@ static const AVClass class = {
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
+#if FF_API_CODER_TYPE
 static const AVCodecDefault ffv1_defaults[] = {
     { "coder", "-1" },
     { NULL },
 };
+#endif
 
 AVCodec ff_ffv1_encoder = {
     .name           = "ffv1",
@@ -1106,6 +1121,8 @@ AVCodec ff_ffv1_encoder = {
         AV_PIX_FMT_NONE
 
     },
+#if FF_API_CODER_TYPE
     .defaults       = ffv1_defaults,
+#endif
     .priv_class     = &class,
 };

@@ -254,7 +254,9 @@ static int encode_frame(AVCodecContext *avctx, AVPacket *pkt,
     case AV_PIX_FMT_RGB24:
     case AV_PIX_FMT_GRAY8:
     case AV_PIX_FMT_PAL8:
-        pfd    = av_pix_fmt_desc_get(avctx->pix_fmt);
+        pfd = av_pix_fmt_desc_get(avctx->pix_fmt);
+        if (!pfd)
+            return AVERROR_BUG;
         s->bpp = av_get_bits_per_pixel(pfd);
         if (pfd->flags & AV_PIX_FMT_FLAG_PAL)
             s->photometric_interpretation = TIFF_PHOTOMETRIC_PALETTE;
@@ -490,6 +492,16 @@ fail:
 
 static av_cold int encode_init(AVCodecContext *avctx)
 {
+#if !CONFIG_ZLIB
+    TiffEncoderContext *s = avctx->priv_data;
+
+    if (s->compr == TIFF_DEFLATE) {
+        av_log(avctx, AV_LOG_ERROR,
+               "Deflate compression needs zlib compiled in\n");
+        return AVERROR(ENOSYS);
+    }
+#endif
+
 #if FF_API_CODED_FRAME
 FF_DISABLE_DEPRECATION_WARNINGS
     avctx->coded_frame->pict_type = AV_PICTURE_TYPE_I;
@@ -507,9 +519,7 @@ static const AVOption options[] = {
     { "packbits",         NULL, 0,             AV_OPT_TYPE_CONST, { .i64 = TIFF_PACKBITS }, 0,        0,            VE, "compression_algo" },
     { "raw",              NULL, 0,             AV_OPT_TYPE_CONST, { .i64 = TIFF_RAW      }, 0,        0,            VE, "compression_algo" },
     { "lzw",              NULL, 0,             AV_OPT_TYPE_CONST, { .i64 = TIFF_LZW      }, 0,        0,            VE, "compression_algo" },
-#if CONFIG_ZLIB
     { "deflate",          NULL, 0,             AV_OPT_TYPE_CONST, { .i64 = TIFF_DEFLATE  }, 0,        0,            VE, "compression_algo" },
-#endif
     { NULL },
 };
 

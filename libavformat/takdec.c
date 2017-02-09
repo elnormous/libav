@@ -19,11 +19,13 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
  */
 
+#define BITSTREAM_READER_LE
 #include "libavcodec/tak.h"
+
+#include "apetag.h"
 #include "avformat.h"
 #include "internal.h"
 #include "rawdec.h"
-#include "apetag.h"
 
 typedef struct TAKDemuxContext {
     int     mlast_frame;
@@ -50,8 +52,8 @@ static int tak_read_header(AVFormatContext *s)
     if (!st)
         return AVERROR(ENOMEM);
 
-    st->codec->codec_type = AVMEDIA_TYPE_AUDIO;
-    st->codec->codec_id   = AV_CODEC_ID_TAK;
+    st->codecpar->codec_type = AVMEDIA_TYPE_AUDIO;
+    st->codecpar->codec_id   = AV_CODEC_ID_TAK;
     st->need_parsing      = AVSTREAM_PARSE_FULL;
 
     tc->mlast_frame = 0;
@@ -99,7 +101,7 @@ static int tak_read_header(AVFormatContext *s)
         case TAK_METADATA_END: {
             int64_t curpos = avio_tell(pb);
 
-            if (pb->seekable) {
+            if (pb->seekable & AVIO_SEEKABLE_NORMAL) {
                 ff_ape_parse_tag(s);
                 avio_seek(pb, curpos, SEEK_SET);
             }
@@ -119,15 +121,15 @@ static int tak_read_header(AVFormatContext *s)
             avpriv_tak_parse_streaminfo(&gb, &ti);
             if (ti.samples > 0)
                 st->duration = ti.samples;
-            st->codec->bits_per_coded_sample = ti.bps;
+            st->codecpar->bits_per_coded_sample = ti.bps;
             if (ti.ch_layout)
-                st->codec->channel_layout = ti.ch_layout;
-            st->codec->sample_rate           = ti.sample_rate;
-            st->codec->channels              = ti.channels;
+                st->codecpar->channel_layout = ti.ch_layout;
+            st->codecpar->sample_rate           = ti.sample_rate;
+            st->codecpar->channels              = ti.channels;
             st->start_time                   = 0;
-            avpriv_set_pts_info(st, 64, 1, st->codec->sample_rate);
-            st->codec->extradata             = buffer;
-            st->codec->extradata_size        = size;
+            avpriv_set_pts_info(st, 64, 1, st->codecpar->sample_rate);
+            st->codecpar->extradata             = buffer;
+            st->codecpar->extradata_size        = size;
             buffer                           = NULL;
         } else if (type == TAK_METADATA_LAST_FRAME) {
             if (size != 11)

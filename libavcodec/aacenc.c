@@ -510,6 +510,7 @@ static int aac_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
     ChannelElement *cpe;
     int i, ch, w, g, chans, tag, start_ch, ret;
     int chan_el_counter[4];
+    int frame_bits;
     FFPsyWindowInfo windows[AAC_MAX_CHANNELS];
 
     if (s->last_frame == 2)
@@ -577,8 +578,6 @@ static int aac_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
     }
 
     do {
-        int frame_bits;
-
         init_put_bits(&s->pb, avpkt->data, avpkt->size);
 
         if ((avctx->frame_number & 0xFF)==1 && !(avctx->flags & AV_CODEC_FLAG_BITEXACT))
@@ -651,11 +650,16 @@ static int aac_encode_frame(AVCodecContext *avctx, AVPacket *avpkt,
 
     put_bits(&s->pb, 3, TYPE_END);
     flush_put_bits(&s->pb);
-    avctx->frame_bits = put_bits_count(&s->pb);
+    frame_bits = put_bits_count(&s->pb);
+#if FF_API_STAT_BITS
+FF_DISABLE_DEPRECATION_WARNINGS
+    avctx->frame_bits = frame_bits;
+FF_ENABLE_DEPRECATION_WARNINGS
+#endif
 
     // rate control stuff
     if (!(avctx->flags & AV_CODEC_FLAG_QSCALE)) {
-        float ratio = avctx->bit_rate * 1024.0f / avctx->sample_rate / avctx->frame_bits;
+        float ratio = avctx->bit_rate * 1024.0f / avctx->sample_rate / frame_bits;
         s->lambda *= ratio;
         s->lambda = FFMIN(s->lambda, 65536.f);
     }
@@ -744,7 +748,9 @@ static av_cold int aac_encode_init(AVCodecContext *avctx)
     ERROR_IF(avctx->profile != FF_PROFILE_UNKNOWN && avctx->profile != FF_PROFILE_AAC_LOW,
              "Unsupported profile %d\n", avctx->profile);
     ERROR_IF(1024.0 * avctx->bit_rate / avctx->sample_rate > 6144 * s->channels,
-             "Too many bits per frame requested\n");
+             "Too many bits %f > %d per frame requested\n",
+             1024.0 * avctx->bit_rate / avctx->sample_rate,
+             6144 * s->channels);
 
     s->samplerate_index = i;
 

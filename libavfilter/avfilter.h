@@ -35,6 +35,7 @@
 
 #include "libavutil/attributes.h"
 #include "libavutil/avutil.h"
+#include "libavutil/buffer.h"
 #include "libavutil/frame.h"
 #include "libavutil/log.h"
 #include "libavutil/samplefmt.h"
@@ -243,6 +244,8 @@ typedef struct AVFilter {
 
     int priv_size;      ///< size of private data to allocate for the filter
 
+    int flags_internal; ///< Additional flags for avfilter internal use only.
+
     /**
      * Used by the filter registration system. Must not be touched by any other
      * code.
@@ -299,6 +302,15 @@ struct AVFilterContext {
      * An opaque struct for libavfilter internal use.
      */
     AVFilterInternal *internal;
+
+    /**
+     * For filters which will create hardware frames, sets the device the
+     * filter should create them in.  All other filters will ignore this field:
+     * in particular, a filter which consumes or processes hardware frames will
+     * instead use the hw_frames_ctx field in AVFilterLink to carry the
+     * hardware context information.
+     */
+    AVBufferRef *hw_device_ctx;
 };
 
 /**
@@ -387,6 +399,12 @@ struct AVFilterLink {
      * Sinks can use it to set a default output frame rate.
      */
     AVRational frame_rate;
+
+    /**
+     * For hwaccel pixel formats, this should be a reference to the
+     * AVHWFramesContext describing the frames.
+     */
+    AVBufferRef *hw_frames_ctx;
 };
 
 /**
@@ -425,7 +443,7 @@ void avfilter_uninit(void);
  * is not registered.
  *
  * @param filter the filter to register
- * @return 0 if the registration was succesfull, a negative value
+ * @return 0 if the registration was successful, a negative value
  * otherwise
  */
 int avfilter_register(AVFilter *filter);

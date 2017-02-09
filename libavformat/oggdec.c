@@ -509,7 +509,7 @@ static int ogg_get_length(AVFormatContext *s)
     int i, ret;
     int64_t size, end;
 
-    if (!s->pb->seekable)
+    if (!(s->pb->seekable & AVIO_SEEKABLE_NORMAL))
         return 0;
 
 // already set
@@ -691,7 +691,7 @@ static int ogg_read_seek(AVFormatContext *s, int stream_index,
 
     // Try seeking to a keyframe first. If this fails (very possible),
     // av_seek_frame will fall back to ignoring keyframes
-    if (s->streams[stream_index]->codec->codec_type == AVMEDIA_TYPE_VIDEO
+    if (s->streams[stream_index]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO
         && !(flags & AVSEEK_FLAG_ANY))
         os->keyframe_seek = 1;
 

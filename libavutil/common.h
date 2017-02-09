@@ -36,6 +36,7 @@
 #include <string.h>
 
 #include "attributes.h"
+#include "macros.h"
 #include "version.h"
 #include "libavutil/avconfig.h"
 
@@ -49,6 +50,14 @@
 #define RSHIFT(a,b) ((a) > 0 ? ((a) + ((1<<(b))>>1))>>(b) : ((a) + ((1<<(b))>>1)-1)>>(b))
 /* assume b>0 */
 #define ROUNDED_DIV(a,b) (((a)>0 ? (a) + ((b)>>1) : (a) - ((b)>>1))/(b))
+
+/**
+ * Fast a / (1 << b) rounded toward +inf, assuming a >= 0 and b >= 0.
+ */
+#define AV_CEIL_RSHIFT(a, b) \
+    (av_builtin_constant_p(b) ? ((a) + (1 << (b)) - 1) >> (b) \
+                              : -((-(a)) >> (b)))
+
 #define FFABS(a) ((a) >= 0 ? (a) : (-(a)))
 #define FFSIGN(a) ((a) > 0 ? 1 : -1)
 
@@ -59,7 +68,6 @@
 
 #define FFSWAP(type,a,b) do{type SWAP_tmp= b; b= a; a= SWAP_tmp;}while(0)
 #define FF_ARRAY_ELEMS(a) (sizeof(a) / sizeof((a)[0]))
-#define FFALIGN(x, a) (((x)+(a)-1)&~((a)-1))
 
 /* misc math functions */
 
