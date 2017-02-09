@@ -169,7 +169,7 @@ typedef struct {
 
 static AVStream *add_audio_stream(AVFormatContext *oc, DecklinkConf *conf)
 {
-    AVCodecContext *c;
+    AVCodecParameters *c;
     AVStream *st;
 
     st = avformat_new_stream(oc, NULL);
@@ -178,7 +178,7 @@ static AVStream *add_audio_stream(AVFormatContext *oc, DecklinkConf *conf)
 
     st->time_base  = (AVRational){1, 48000};
 
-    c              = st->codec;
+    c              = st->codecpar;
     c->codec_type  = AVMEDIA_TYPE_AUDIO;
     c->sample_rate = 48000;
     c->channels    = conf->audio_channels;
@@ -206,7 +206,7 @@ static AVStream *add_audio_stream(AVFormatContext *oc, DecklinkConf *conf)
 
 static AVStream *add_data_stream(AVFormatContext *oc, DecklinkConf *conf)
 {
-    AVCodecContext *c;
+    AVCodecParameters *c;
     AVStream *st;
 
     st = avformat_new_stream(oc, NULL);
@@ -215,7 +215,7 @@ static AVStream *add_data_stream(AVFormatContext *oc, DecklinkConf *conf)
         exit(1);
     }
 
-    c = st->codec;
+    c = st->codecpar;
     c->codec_id   = AV_CODEC_ID_TEXT;
     c->codec_type = AVMEDIA_TYPE_DATA;
 
@@ -232,14 +232,14 @@ static AVStream *add_data_stream(AVFormatContext *oc, DecklinkConf *conf)
 
 static AVStream *add_video_stream(AVFormatContext *oc, DecklinkConf *conf)
 {
-    AVCodecContext *c;
+    AVCodecParameters *c;
     AVStream *st;
 
     st = avformat_new_stream(oc, NULL);
     if (!st)
         return NULL;
 
-    c                = st->codec;
+    c                = st->codecpar;
     c->codec_type    = AVMEDIA_TYPE_VIDEO;
 
     c->width         = conf->width;
