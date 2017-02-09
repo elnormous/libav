@@ -479,8 +479,8 @@ static int amf_parse_object(AVFormatContext *s, AVStream *astream,
                         vpar->width = num_val;
                     } else if (!strcmp(key, "height") && vpar) {
                         vpar->height = num_val;
-                    } else if (!strcmp(key, "framerate") && vcodec) {
-                        vcodec->metadata_framerate = num_val;
+                    } else if (!strcmp(key, "framerate") && vstream) {
+                        vstream->avg_frame_rate = av_d2q(num_val, INT_MAX);
                     }
                 }
             }

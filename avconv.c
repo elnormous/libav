@@ -2031,6 +2031,9 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
         AVCodec      *codec = ost->enc;
         AVCodecContext *dec = NULL;
         InputStream *ist;
+        AVDictionaryEntry *t = NULL;
+        int auto_gop = 0;
+        int auto_fps = 0;
 
         ret = init_output_stream_encode(ost);
         if (ret < 0)
@@ -2047,6 +2050,37 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
         }
         if (!av_dict_get(ost->encoder_opts, "threads", NULL, 0))
             av_dict_set(&ost->encoder_opts, "threads", "auto", 0);
+
+        while ((t = av_dict_get(ost->encoder_opts, "", t, AV_DICT_IGNORE_SUFFIX))) {
+            if (strcmp(t->key, "auto_gop") == 0 && atoi(t->value)) {
+                auto_gop = 1;
+            }
+            if (strcmp(t->key, "auto_fps") == 0 && atoi(t->value)) {
+                auto_fps = 1;
+            }
+        }
+
+        if (auto_gop || auto_fps)
+        {
+            if (ist->st->avg_frame_rate.num && ist->st->avg_frame_rate.den) {
+                double fps = av_q2d(ist->st->avg_frame_rate);
+
+                if (auto_gop) {
+                    int gop = (int)fps;
+                    gop += 1;
+
+                    ost->enc_ctx->gop_size = gop;
+                }
+
+                if (auto_fps) {
+                    ost->enc_ctx->framerate = ost->st->avg_frame_rate = av_d2q(fps, INT_MAX);
+                }
+            }
+            else {
+                av_log(NULL, AV_LOG_WARNING,
+                   "Failed to detect framerate, auto gop disabled.\n");
+            }
+        }
 
         if (ost->filter && ost->filter->filter->inputs[0]->hw_frames_ctx &&
             ((AVHWFramesContext*)ost->filter->filter->inputs[0]->hw_frames_ctx->data)->format ==
