@@ -891,6 +891,8 @@ typedef struct AVStream {
      * Must not be accessed in any way by callers.
      */
     AVStreamInternal *internal;
+
+    int dropped_frames;
 } AVStream;
 
 #define AV_PROGRAM_RUNNING 1

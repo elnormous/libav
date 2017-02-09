@@ -185,12 +185,12 @@ static AVStream *add_audio_stream(AVFormatContext *oc, DecklinkConf *conf)
 
     switch (conf->audio_sample_depth) {
     case 16:
-        c->sample_fmt = AV_SAMPLE_FMT_S16;
-        c->codec_id   = AV_CODEC_ID_PCM_S16LE;
+        c->format   = AV_SAMPLE_FMT_S16;
+        c->codec_id = AV_CODEC_ID_PCM_S16LE;
     break;
     case 32:
-        c->sample_fmt = AV_SAMPLE_FMT_S32;
-        c->codec_id   = AV_CODEC_ID_PCM_S32LE;
+        c->format   = AV_SAMPLE_FMT_S32;
+        c->codec_id = AV_CODEC_ID_PCM_S32LE;
     break;
     default:
         av_log(oc, AV_LOG_ERROR,
@@ -198,8 +198,6 @@ static AVStream *add_audio_stream(AVFormatContext *oc, DecklinkConf *conf)
                conf->audio_sample_depth);
         return NULL;
     }
-
-    c->flags |= CODEC_FLAG_GLOBAL_HEADER;
 
     return st;
 }
@@ -224,8 +222,6 @@ static AVStream *add_data_stream(AVFormatContext *oc, DecklinkConf *conf)
 
     st->avg_frame_rate.num = conf->tb_den;
     st->avg_frame_rate.den = conf->tb_num;
-
-    c->flags |= CODEC_FLAG_GLOBAL_HEADER;
 
     return st;
 }
@@ -270,22 +266,20 @@ static AVStream *add_video_stream(AVFormatContext *oc, DecklinkConf *conf)
     switch (conf->pixel_format) {
     // YUV first
     case 0:
-        c->pix_fmt   = AV_PIX_FMT_UYVY422;
+        c->format    = AV_PIX_FMT_UYVY422;
         c->codec_id  = AV_CODEC_ID_RAWVIDEO;
-        c->codec_tag = avcodec_pix_fmt_to_codec_tag(c->pix_fmt);
+        c->codec_tag = avcodec_pix_fmt_to_codec_tag(c->format);
     break;
     case 1:
-        c->pix_fmt             = AV_PIX_FMT_YUV422P10;
-        c->codec_id            = AV_CODEC_ID_V210;
-        c->bits_per_raw_sample = 10;
+        c->format                = AV_PIX_FMT_YUV422P10;
+        c->codec_id              = AV_CODEC_ID_V210;
+        c->bits_per_coded_sample = 10;
     break;
     // RGB later
     default:
         av_log(oc, AV_LOG_ERROR, "pixel format is not supported.\n");
         return NULL;
     }
-
-    c->flags |= CODEC_FLAG_GLOBAL_HEADER;
 
     return st;
 }
@@ -307,7 +301,7 @@ static int bmd_read_close(AVFormatContext *s)
 static int put_wallclock_packet(BMDCaptureContext *ctx, int64_t pts)
 {
     AVPacket pkt;
-    AVCodecContext *c = ctx->data_st->codec;
+    AVCodecParameters *c = ctx->data_st->codecpar;
     char buf[21];
     int size;
     int ret;
@@ -327,7 +321,7 @@ static int put_wallclock_packet(BMDCaptureContext *ctx, int64_t pts)
 
     if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
         av_log(c, AV_LOG_WARNING, "no space in queue, data frame dropped.\n");
-        ctx->data_st->codec->dropped_frames++;
+        ctx->data_st->dropped_frames++;
     }
 
     return 0;
@@ -340,7 +334,7 @@ static int video_callback(void *priv, uint8_t *frame,
                           int64_t flags)
 {
     BMDCaptureContext *ctx = priv;
-    AVCodecContext *c = ctx->video_st->codec;
+    AVCodecParameters *c = ctx->video_st->codecpar;
     AVPacket pkt;
     int ret;
 
@@ -364,7 +358,7 @@ static int video_callback(void *priv, uint8_t *frame,
 
     if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
         av_log(c, AV_LOG_WARNING, "no space in queue, video frame dropped.\n");
-        ctx->video_st->codec->dropped_frames++;
+        ctx->video_st->dropped_frames++;
     }
 
     return 0;
@@ -376,7 +370,7 @@ static int audio_callback(void *priv, uint8_t *frame,
                           int64_t flags)
 {
     BMDCaptureContext *ctx = priv;
-    AVCodecContext *c = ctx->audio_st->codec;
+    AVCodecParameters *c = ctx->audio_st->codecpar;
     AVPacket pkt;
     int ret;
 
@@ -395,7 +389,7 @@ static int audio_callback(void *priv, uint8_t *frame,
 
     if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
         av_log(c, AV_LOG_WARNING, "no space in queue, audio frame dropped.\n");
-        ctx->audio_st->codec->dropped_frames++;
+        ctx->audio_st->dropped_frames++;
     }
 
     return 0;

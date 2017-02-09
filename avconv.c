@@ -1024,8 +1024,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
         int dropped_frames = 0;
         
         for (int s = 0; s < is->nb_streams; ++s) {
-            dec = is->streams[s]->codec;
-            dropped_frames += dec->dropped_frames;
+            dropped_frames += is->streams[s]->dropped_frames;
         }
 
         snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), " frame drop=%d", dropped_frames);

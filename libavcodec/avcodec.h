@@ -3107,8 +3107,6 @@ typedef struct AVCodecContext {
      *             This field should be set before avcodec_open2() is called.
      */
     AVBufferRef *hw_frames_ctx;
-
-    int dropped_frames;
 } AVCodecContext;
 
 /**
