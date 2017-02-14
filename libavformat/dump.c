@@ -355,7 +355,7 @@ static void dump_sidedata(void *ctx, AVStream *st, const char *indent)
             dump_cpb(ctx, &sd);
             break;
         case AV_PKT_DATA_STREAM_START_TIME:
-            av_log(ctx, AV_LOG_INFO, "start time: %d" PRId64, *(int64_t*)sd.data);
+            av_log(ctx, AV_LOG_INFO, "start time: %" PRId64, *(int64_t*)sd.data);
             break;
         default:
             av_log(ctx, AV_LOG_WARNING,
