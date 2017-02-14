@@ -1289,6 +1289,8 @@ enum AVPacketSideDataType {
      * This side data corresponds to the AVCPBProperties struct.
      */
     AV_PKT_DATA_CPB_PROPERTIES,
+    
+    AV_PKT_DATA_STREAM_START_TIME,
 };
 
 typedef struct AVPacketSideData {

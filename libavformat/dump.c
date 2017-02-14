@@ -354,6 +354,9 @@ static void dump_sidedata(void *ctx, AVStream *st, const char *indent)
             av_log(ctx, AV_LOG_INFO, "cpb: ");
             dump_cpb(ctx, &sd);
             break;
+        case AV_PKT_DATA_STREAM_START_TIME:
+            av_log(ctx, AV_LOG_INFO, "start time: %d" PRId64, *(int64_t*)sd.data);
+            break;
         default:
             av_log(ctx, AV_LOG_WARNING,
                    "unknown side data type %d (%d bytes)", sd.type, sd.size);
