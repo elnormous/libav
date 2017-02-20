@@ -290,10 +290,11 @@ static void write_packet(OutputFile *of, AVPacket *pkt, OutputStream *ost)
     
     if (!hw) {
         
+        AVPacket tmp_pkt;
         #if HAVE_PTHREADS
             pthread_mutex_lock(&ost->data_lock);
         #endif
-        AVPacket tmp_pkt;
+        
         /* the muxer is not initialized yet, buffer the packet */
         if (!av_fifo_space(ost->muxing_queue)) {
             int new_size = FFMIN(2 * av_fifo_size(ost->muxing_queue),
