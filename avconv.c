@@ -278,9 +278,21 @@ static void write_packet(OutputFile *of, AVPacket *pkt, OutputStream *ost)
 {
     AVFormatContext *s = of->ctx;
     AVStream *st = ost->st;
-    int ret;
+    int ret, hw;
 
-    if (!of->header_written) {
+    #if HAVE_PTHREADS
+        pthread_mutex_lock(&of->data_lock);
+    #endif
+    hw = of->header_written;
+    #if HAVE_PTHREADS
+        pthread_mutex_unlock(&of->data_lock);
+    #endif    
+    
+    if (!hw) {
+        
+        #if HAVE_PTHREADS
+            pthread_mutex_lock(&ost->data_lock);
+        #endif
         AVPacket tmp_pkt;
         /* the muxer is not initialized yet, buffer the packet */
         if (!av_fifo_space(ost->muxing_queue)) {
@@ -298,9 +310,15 @@ static void write_packet(OutputFile *of, AVPacket *pkt, OutputStream *ost)
         }
         av_packet_move_ref(&tmp_pkt, pkt);
         av_fifo_generic_write(ost->muxing_queue, &tmp_pkt, sizeof(tmp_pkt), NULL);
+        #if HAVE_PTHREADS
+            pthread_mutex_unlock(&ost->data_lock);
+        #endif
         return;
     }
 
+    #if HAVE_PTHREADS
+        pthread_mutex_lock(&ost->data_lock);
+    #endif
     /*
      * Audio encoders may split the packets --  #frames in != #packets out.
      * But there is no reordering, so we can limit the number of output packets
@@ -311,6 +329,9 @@ static void write_packet(OutputFile *of, AVPacket *pkt, OutputStream *ost)
     if (!(st->codecpar->codec_type == AVMEDIA_TYPE_VIDEO && ost->encoding_needed)) {
         if (ost->frame_number >= ost->max_frames) {
             av_packet_unref(pkt);
+            #if HAVE_PTHREADS
+                pthread_mutex_unlock(&ost->data_lock);
+            #endif
             return;
         }
         ost->frame_number++;
@@ -352,6 +373,10 @@ static void write_packet(OutputFile *of, AVPacket *pkt, OutputStream *ost)
     av_packet_rescale_ts(pkt, ost->mux_timebase, ost->st->time_base);
 
     ret = av_interleaved_write_frame(s, pkt);
+    #if HAVE_PTHREADS
+        pthread_mutex_unlock(&ost->data_lock);
+    #endif
+
     if (ret < 0) {
         print_error("av_interleaved_write_frame()", ret);
         exit_program(1);
@@ -427,11 +452,20 @@ static void do_audio_out(OutputFile *of, OutputStream *ost,
 
     if (frame->pts == AV_NOPTS_VALUE || audio_sync_method < 0)
         frame->pts = ost->sync_opts;
+    
+    #if HAVE_PTHREADS
+        pthread_mutex_lock(&ost->data_lock);
+    #endif
+    
     ost->sync_opts = frame->pts + frame->nb_samples;
 
     ost->samples_encoded += frame->nb_samples;
     ost->frames_encoded++;
-
+    
+    #if HAVE_PTHREADS
+        pthread_mutex_unlock(&ost->data_lock);
+    #endif
+    
     ret = avcodec_send_frame(enc, frame);
     if (ret < 0)
         goto error;
@@ -546,7 +580,9 @@ static void do_video_out(OutputFile *of,
                ost->frame_number, ost->st->index, in_picture->pts);
         return;
     }
-
+    #if HAVE_PTHREADS
+        pthread_mutex_lock(&ost->data_lock);
+    #endif
     if (in_picture->pts == AV_NOPTS_VALUE)
         in_picture->pts = ost->sync_opts;
     ost->sync_opts = in_picture->pts;
@@ -560,7 +596,13 @@ static void do_video_out(OutputFile *of,
     pkt.size = 0;
 
     if (ost->frame_number >= ost->max_frames)
+    {
+        #if HAVE_PTHREADS
+            pthread_mutex_unlock(&ost->data_lock);
+        #endif
         return;
+    }
+        
 
     if (enc->flags & (AV_CODEC_FLAG_INTERLACED_DCT | AV_CODEC_FLAG_INTERLACED_ME) &&
         ost->top_field_first >= 0)
@@ -575,7 +617,11 @@ static void do_video_out(OutputFile *of,
     }
 
     ost->frames_encoded++;
-
+    
+    #if HAVE_PTHREADS
+        pthread_mutex_unlock(&ost->data_lock);
+    #endif
+    
     ret = avcodec_send_frame(enc, in_picture);
     if (ret < 0)
         goto error;
@@ -584,7 +630,13 @@ static void do_video_out(OutputFile *of,
      * For video, there may be reordering, so we can't throw away frames on
      * encoder flush, we need to limit them here, before they go into encoder.
      */
+    #if HAVE_PTHREADS
+        pthread_mutex_lock(&ost->data_lock);
+    #endif
     ost->frame_number++;
+    #if HAVE_PTHREADS
+        pthread_mutex_unlock(&ost->data_lock);
+    #endif
 
     while (1) {
         ret = avcodec_receive_packet(enc, &pkt);
@@ -595,13 +647,20 @@ static void do_video_out(OutputFile *of,
 
         output_packet(of, &pkt, ost);
         *frame_size = pkt.size;
-
+        
+        #if HAVE_PTHREADS
+            pthread_mutex_lock(&ost->data_lock);
+        #endif
         /* if two pass, output log */
         if (ost->logfile && enc->stats_out) {
             fprintf(ost->logfile, "%s", enc->stats_out);
         }
 
         ost->sync_opts++;
+        
+        #if HAVE_PTHREADS
+            pthread_mutex_unlock(&ost->data_lock);
+        #endif
     }
 
     return;
@@ -666,6 +725,29 @@ FF_ENABLE_DEPRECATION_WARNINGS
 
 static int init_output_stream(OutputStream *ost, char *error, int error_len);
 
+static void do_frame_out(OutputStream *ost, AVFrame *filtered_frame)
+{
+    OutputFile    *of = output_files[ost->file_index];
+    int frame_size;
+    
+    switch (ost->filter->filter->inputs[0]->type) {
+        case AVMEDIA_TYPE_VIDEO:
+            if (!ost->frame_aspect_ratio)
+                ost->enc_ctx->sample_aspect_ratio = filtered_frame->sample_aspect_ratio;
+
+            do_video_out(of, ost, filtered_frame, &frame_size);
+            if (vstats_filename && frame_size)
+                do_video_stats(ost, frame_size);
+            break;
+        case AVMEDIA_TYPE_AUDIO:
+            do_audio_out(of, ost, filtered_frame);
+            break;
+        default:
+            // TODO support subtitle filters
+            av_assert0(0);
+    }
+}
+
 /*
  * Read one frame for lavfi output for ost and encode it.
  */
@@ -710,23 +792,37 @@ static int poll_filter(OutputStream *ost)
                                            ost->enc_ctx->time_base);
     }
 
-    switch (ost->filter->filter->inputs[0]->type) {
-    case AVMEDIA_TYPE_VIDEO:
-        if (!ost->frame_aspect_ratio)
-            ost->enc_ctx->sample_aspect_ratio = filtered_frame->sample_aspect_ratio;
-
-        do_video_out(of, ost, filtered_frame, &frame_size);
-        if (vstats_filename && frame_size)
-            do_video_stats(ost, frame_size);
-        break;
-    case AVMEDIA_TYPE_AUDIO:
-        do_audio_out(of, ost, filtered_frame);
-        break;
-    default:
-        // TODO support subtitle filters
-        av_assert0(0);
+    #if HAVE_PTHREADS
+    if (nb_output_files > 1)
+    {
+        AVFrame *new_filtered_frame;
+        if (ost->finished)
+            return AVERROR_EOF;
+        
+        pthread_mutex_lock(&of->fifo_lock);
+        
+        while (!av_fifo_space(of->fifo)) {
+            ret = av_fifo_realloc2(of->fifo, av_fifo_size(of->fifo) * 2);
+            
+            if (ret < 0) {
+                print_error("av_fifo_realloc2()", ret);
+                exit_program(1);
+            }
+        }
+        
+        new_filtered_frame = av_frame_clone(filtered_frame);
+        av_frame_unref(filtered_frame);
+        
+        new_filtered_frame->opaque = ost;
+        av_fifo_generic_write(of->fifo, &new_filtered_frame, sizeof(new_filtered_frame), NULL);
+        pthread_cond_signal(&of->fifo_cond);
+        pthread_mutex_unlock(&of->fifo_lock);
+        
+        return 0;
     }
+    #endif
 
+    do_frame_out(ost, filtered_frame);
     av_frame_unref(filtered_frame);
 
     return 0;
@@ -763,8 +859,14 @@ static int poll_filters(void)
 
         /* choose output stream with the lowest timestamp */
         for (i = 0; i < nb_output_streams; i++) {
-            int64_t pts = output_streams[i]->sync_opts;
-
+            int64_t pts;
+            #if HAVE_PTHREADS
+                pthread_mutex_lock(&output_streams[i]->data_lock); 
+            #endif
+            pts = output_streams[i]->sync_opts;
+            #if HAVE_PTHREADS
+                pthread_mutex_unlock(&output_streams[i]->data_lock); 
+            #endif
             if (output_streams[i]->filter && !output_streams[i]->filter->graph->graph &&
                 !output_streams[i]->filter->graph->nb_inputs) {
                 ret = configure_filtergraph(output_streams[i]->filter->graph);
@@ -952,18 +1054,23 @@ static void print_report(int is_last_report, int64_t timer_start)
     vid = 0;
     for (i = 0; i < nb_output_streams; i++) {
         float q = -1;
+        
         ost = output_streams[i];
+        #if HAVE_PTHREADS
+            pthread_mutex_lock(&ost->data_lock);
+        #endif
+        
         enc = ost->enc_ctx;
         if (!ost->stream_copy)
             q = ost->quality / (float) FF_QP2LAMBDA;
-
+        frame_number = ost->frame_number;
+        
         if (vid && enc->codec_type == AVMEDIA_TYPE_VIDEO) {
             snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "q=%2.1f ", q);
         }
         if (!vid && enc->codec_type == AVMEDIA_TYPE_VIDEO) {
             float t = (av_gettime_relative() - timer_start) / 1000000.0;
 
-            frame_number = ost->frame_number;
             snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "frame=%5d fps=%3d q=%3.1f ",
                      frame_number, (t > 1) ? (int)(frame_number / t + 0.5) : 0, q);
             if (is_last_report)
@@ -1007,6 +1114,10 @@ FF_ENABLE_DEPRECATION_WARNINGS
         }
         /* compute min output value */
         pts = (double)ost->last_mux_dts * av_q2d(ost->mux_timebase);
+        #if HAVE_PTHREADS
+            pthread_mutex_unlock(&ost->data_lock);
+        #endif
+
         if ((pts < ti1) && (pts > 0))
             ti1 = pts;
     }
@@ -1126,19 +1237,38 @@ static void do_streamcopy(InputStream *ist, OutputStream *ost, const AVPacket *p
 {
     OutputFile *of = output_files[ost->file_index];
     InputFile   *f = input_files [ist->file_index];
-    int64_t start_time = (of->start_time == AV_NOPTS_VALUE) ? 0 : of->start_time;
-    int64_t ost_tb_start_time = av_rescale_q(start_time, AV_TIME_BASE_Q, ost->mux_timebase);
+    int64_t start_time;
+    int64_t ost_tb_start_time;
     AVPacket opkt;
-
+    
+    #if HAVE_PTHREADS
+        pthread_mutex_lock(&of->data_lock);
+    #endif 
+    start_time = (of->start_time == AV_NOPTS_VALUE) ? 0 : of->start_time;
+    #if HAVE_PTHREADS
+        pthread_mutex_unlock(&of->data_lock);
+        pthread_mutex_lock(&ost->data_lock);
+    #endif 
+    
+    ost_tb_start_time = av_rescale_q(start_time, AV_TIME_BASE_Q, ost->mux_timebase);
+    
     av_init_packet(&opkt);
 
     if ((!ost->frame_number && !(pkt->flags & AV_PKT_FLAG_KEY)) &&
         !ost->copy_initial_nonkeyframes)
+    {
+        #if HAVE_PTHREADS
+            pthread_mutex_unlock(&ost->data_lock);
+        #endif
         return;
+    }
 
     if (of->recording_time != INT64_MAX &&
         ist->last_dts >= of->recording_time + start_time) {
         ost->finished = 1;
+        #if HAVE_PTHREADS
+            pthread_mutex_unlock(&ost->data_lock);
+        #endif
         return;
     }
 
@@ -1148,6 +1278,9 @@ static void do_streamcopy(InputStream *ist, OutputStream *ost, const AVPacket *p
             start_time += f->start_time;
         if (ist->last_dts >= f->recording_time + start_time) {
             ost->finished = 1;
+            #if HAVE_PTHREADS
+                pthread_mutex_unlock(&ost->data_lock);
+            #endif
             return;
         }
     }
@@ -1189,7 +1322,14 @@ static void do_streamcopy(InputStream *ist, OutputStream *ost, const AVPacket *p
         opkt.size = pkt->size;
     }
 
+    #if HAVE_PTHREADS
+        pthread_mutex_unlock(&ost->data_lock);
+        pthread_mutex_lock(&of->fifo_lock);
+    #endif   
     output_packet(of, &opkt, ost);
+    #if HAVE_PTHREADS
+        pthread_mutex_unlock(&of->fifo_lock);
+    #endif
 }
 
 static int ifilter_send_frame(InputFilter *ifilter, AVFrame *frame)
@@ -1780,8 +1920,15 @@ static int check_init_output_file(OutputFile *of, int file_index)
         return ret;
     }
     assert_avoptions(of->opts);
-    of->header_written = 1;
 
+    #if HAVE_PTHREADS
+        pthread_mutex_lock(&of->data_lock);
+    #endif
+    of->header_written = 1;
+    #if HAVE_PTHREADS
+        pthread_mutex_unlock(&of->data_lock);
+    #endif
+    
     av_dump_format(of->ctx, file_index, of->ctx->filename, 1);
 
     if (want_sdp)
@@ -2025,7 +2172,10 @@ static int init_output_stream_encode(OutputStream *ost)
 static int init_output_stream(OutputStream *ost, char *error, int error_len)
 {
     int ret = 0;
-
+    #if HAVE_PTHREADS
+        pthread_mutex_lock(&ost->data_lock);
+    #endif
+    
     if (ost->encoding_needed) {
         AVCodec      *codec = ost->enc;
         AVCodecContext *dec = NULL;
@@ -2036,14 +2186,16 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
 
         ret = init_output_stream_encode(ost);
         if (ret < 0)
-            return ret;
+            goto fnc_return;
 
         if ((ist = get_input_stream(ost)))
             dec = ist->dec_ctx;
         if (dec && dec->subtitle_header) {
             ost->enc_ctx->subtitle_header = av_malloc(dec->subtitle_header_size);
-            if (!ost->enc_ctx->subtitle_header)
-                return AVERROR(ENOMEM);
+            if (!ost->enc_ctx->subtitle_header) {
+                ret = AVERROR(ENOMEM);
+                goto fnc_return;
+            }
             memcpy(ost->enc_ctx->subtitle_header, dec->subtitle_header, dec->subtitle_header_size);
             ost->enc_ctx->subtitle_header_size = dec->subtitle_header_size;
         }
@@ -2085,8 +2237,10 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
             ((AVHWFramesContext*)ost->filter->filter->inputs[0]->hw_frames_ctx->data)->format ==
             ost->filter->filter->inputs[0]->format) {
             ost->enc_ctx->hw_frames_ctx = av_buffer_ref(ost->filter->filter->inputs[0]->hw_frames_ctx);
-            if (!ost->enc_ctx->hw_frames_ctx)
-                return AVERROR(ENOMEM);
+            if (!ost->enc_ctx->hw_frames_ctx) {
+                ret = AVERROR(ENOMEM);
+                goto fnc_return;
+            }
         }
 
         if ((ret = avcodec_open2(ost->enc_ctx, codec, &ost->encoder_opts)) < 0) {
@@ -2096,7 +2250,7 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
                      "Error while opening encoder for output stream #%d:%d - "
                      "maybe incorrect parameters such as bit_rate, rate, width or height",
                     ost->file_index, ost->index);
-            return ret;
+            goto fnc_return;
         }
         assert_avoptions(ost->encoder_opts);
         if (ost->enc_ctx->bit_rate && ost->enc_ctx->bit_rate < 1000)
@@ -2115,16 +2269,20 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
 
             ost->st->side_data = av_realloc_array(NULL, ost->enc_ctx->nb_coded_side_data,
                                                   sizeof(*ost->st->side_data));
-            if (!ost->st->side_data)
-                return AVERROR(ENOMEM);
+            if (!ost->st->side_data) {
+                ret = AVERROR(ENOMEM);
+                goto fnc_return;
+            }
 
             for (i = 0; i < ost->enc_ctx->nb_coded_side_data; i++) {
                 const AVPacketSideData *sd_src = &ost->enc_ctx->coded_side_data[i];
                 AVPacketSideData *sd_dst = &ost->st->side_data[i];
 
                 sd_dst->data = av_malloc(sd_src->size);
-                if (!sd_dst->data)
-                    return AVERROR(ENOMEM);
+                if (!sd_dst->data) {
+                    ret = AVERROR(ENOMEM);
+                    goto fnc_return;
+                }
                 memcpy(sd_dst->data, sd_src->data, sd_src->size);
                 sd_dst->size = sd_src->size;
                 sd_dst->type = sd_src->type;
@@ -2136,7 +2294,7 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
     } else if (ost->stream_copy) {
         ret = init_output_stream_streamcopy(ost);
         if (ret < 0)
-            return ret;
+            goto fnc_return;
 
         /*
          * FIXME: will the codec context used by the parser during streamcopy
@@ -2144,7 +2302,7 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
          */
         ret = avcodec_parameters_to_context(ost->parser_avctx, ost->st->codecpar);
         if (ret < 0)
-            return ret;
+            goto fnc_return;
     }
 
     /* initialize bitstream filters for the output stream
@@ -2152,16 +2310,20 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
      * known until now */
     ret = init_output_bsfs(ost);
     if (ret < 0)
-        return ret;
+        goto fnc_return;
 
     ost->mux_timebase = ost->st->time_base;
 
     ost->initialized = 1;
 
     ret = check_init_output_file(output_files[ost->file_index], ost->file_index);
-    if (ret < 0)
-        return ret;
-
+    
+fnc_return:
+    
+    #if HAVE_PTHREADS
+        pthread_mutex_unlock(&ost->data_lock);
+    #endif
+    
     return ret;
 }
 
@@ -2187,6 +2349,9 @@ static int transcode_init(void)
 
     /* open each encoder */
     for (i = 0; i < nb_output_streams; i++) {
+        #if HAVE_PTHREADS
+            pthread_mutex_init(&output_streams[i]->data_lock, NULL);
+        #endif
         // skip streams fed from filtergraphs until we have a frame for them
         if (output_streams[i]->filter)
             continue;
@@ -2310,21 +2475,53 @@ static int need_output(void)
 {
     int i;
 
-    for (i = 0; i < nb_output_streams; i++) {
+    for (i = 0; i < nb_output_streams; i++) 
+    {
         OutputStream *ost    = output_streams[i];
         OutputFile *of       = output_files[ost->file_index];
         AVFormatContext *os  = output_files[ost->file_index]->ctx;
 
-        if (ost->finished ||
-            (os->pb && avio_tell(os->pb) >= of->limit_filesize))
-            continue;
-        if (ost->frame_number >= ost->max_frames) {
-            int j;
-            for (j = 0; j < of->ctx->nb_streams; j++)
-                output_streams[of->ost_index + j]->finished = 1;
+        #if HAVE_PTHREADS
+            pthread_mutex_lock(&ost->data_lock);
+            pthread_mutex_lock(&of->data_lock);
+        #endif
+        
+        if (ost->finished || (os->pb && avio_tell(os->pb) >= of->limit_filesize)) 
+        {
+            #if HAVE_PTHREADS
+                pthread_mutex_unlock(&ost->data_lock);
+                pthread_mutex_unlock(&of->data_lock);
+            #endif
             continue;
         }
-
+            
+        if (ost->frame_number >= ost->max_frames) 
+        {
+            int j;
+            
+            #if HAVE_PTHREADS
+                pthread_mutex_unlock(&ost->data_lock);
+                pthread_mutex_unlock(&of->data_lock);
+            #endif
+            
+            for (j = 0; j < of->ctx->nb_streams; j++)
+            {
+                #if HAVE_PTHREADS
+                    pthread_mutex_lock(&ost->data_lock);
+                #endif
+                output_streams[of->ost_index + j]->finished = 1;
+                
+                #if HAVE_PTHREADS
+                    pthread_mutex_unlock(&ost->data_lock);
+                #endif
+            }
+            continue;
+        }
+        
+        #if HAVE_PTHREADS
+            pthread_mutex_unlock(&ost->data_lock);
+            pthread_mutex_unlock(&of->data_lock);
+        #endif
         return 1;
     }
 
@@ -2355,6 +2552,94 @@ static InputFile *select_input_file(void)
 }
 
 #if HAVE_PTHREADS
+static void *output_thread(void *arg)
+{
+    OutputFile      *f = arg;
+
+    while (!transcoding_finished) {
+        
+        pthread_mutex_lock(&f->fifo_lock);
+        
+        while (av_fifo_size(f->fifo)) {
+            AVFrame         *filtered_frame;
+            OutputStream    *ost;
+
+            av_fifo_generic_read(f->fifo, &filtered_frame, sizeof(filtered_frame), NULL);
+
+            ost = filtered_frame->opaque;
+            do_frame_out(ost, filtered_frame);
+            av_frame_free(&filtered_frame);
+        }
+        
+        pthread_cond_wait(&f->fifo_cond, &f->fifo_lock);
+        
+        pthread_mutex_unlock(&f->fifo_lock);
+        
+    }
+
+    f->finished = 1;
+    return NULL;
+}
+
+static void free_output_threads(void)
+{
+    int i;
+    
+    if (nb_output_files == 1)
+        return;
+    
+    transcoding_finished = 1;
+    
+    for (i = 0; i < nb_output_files; i++) {
+        OutputFile *f = output_files[i];
+        AVPacket pkt;
+        
+        if (!f->fifo || f->joined)
+            continue;
+        
+        pthread_mutex_lock(&f->fifo_lock);
+        while (av_fifo_size(f->fifo)) {
+            av_fifo_generic_read(f->fifo, &pkt, sizeof(pkt), NULL);
+            av_packet_unref(&pkt);
+        }
+        pthread_cond_signal(&f->fifo_cond);
+        pthread_mutex_unlock(&f->fifo_lock);
+        
+        pthread_join(f->thread, NULL);
+        f->joined = 1;
+        
+        while (av_fifo_size(f->fifo)) {
+            av_fifo_generic_read(f->fifo, &pkt, sizeof(pkt), NULL);
+            av_packet_unref(&pkt);
+        }
+        av_fifo_free(f->fifo);
+    }
+}
+
+static int init_output_threads(void)
+{
+    int i, ret;
+    
+    if (nb_output_files == 1)
+        return 0;
+    
+    for (i = 0; i < nb_output_files; i++) {
+        OutputFile *f = output_files[i];
+        
+        if (!(f->fifo = av_fifo_alloc(8*sizeof(AVPacket))))
+            return AVERROR(ENOMEM);
+        
+        pthread_mutex_init(&f->fifo_lock, NULL);
+        pthread_cond_init (&f->fifo_cond, NULL);
+        
+        pthread_mutex_init(&f->data_lock, NULL);
+        
+        if ((ret = pthread_create(&f->thread, NULL, output_thread, f)))
+            return AVERROR(ret);
+    }
+    return 0;
+}
+
 static void *input_thread(void *arg)
 {
     InputFile *f = arg;
@@ -2754,10 +3039,13 @@ static int transcode(void)
 
     timer_start = av_gettime_relative();
 
-#if HAVE_PTHREADS
-    if ((ret = init_input_threads()) < 0)
-        goto fail;
-#endif
+    #if HAVE_PTHREADS
+        if ((ret = init_input_threads()) < 0)
+            goto fail;
+
+        if ((ret = init_output_threads()) < 0)
+            goto fail;
+    #endif
 
     while (!received_sigterm) {
         /* check if there's any stream where output is still needed */
@@ -2785,9 +3073,10 @@ static int transcode(void)
         /* dump report by using the output first video and audio streams */
         print_report(0, timer_start);
     }
-#if HAVE_PTHREADS
-    free_input_threads();
-#endif
+    #if HAVE_PTHREADS
+        free_input_threads();
+        free_output_threads();
+    #endif
 
     /* at the end of stream, we must flush the decoder buffers */
     for (i = 0; i < nb_input_streams; i++) {
@@ -2841,9 +3130,9 @@ static int transcode(void)
     ret = 0;
 
  fail:
-#if HAVE_PTHREADS
-    free_input_threads();
-#endif
+    #if HAVE_PTHREADS
+        free_input_threads();
+    #endif
 
     if (output_streams) {
         for (i = 0; i < nb_output_streams; i++) {

@@ -424,6 +424,10 @@ typedef struct OutputStream {
 
     /* the packets are buffered here until the muxer is ready to be initialized */
     AVFifoBuffer *muxing_queue;
+    
+#if HAVE_PTHREADS
+    pthread_mutex_t data_lock;  /* lock for access to data */
+#endif
 } OutputStream;
 
 typedef struct OutputFile {
@@ -437,6 +441,16 @@ typedef struct OutputFile {
     int shortest;
 
     int header_written;
+    
+#if HAVE_PTHREADS
+    pthread_t thread;           /* thread reading from this file */
+    int finished;               /* the thread has exited */
+    int joined;                 /* the thread has been joined */
+    pthread_mutex_t data_lock;  /* lock for access to data */
+    pthread_mutex_t fifo_lock;  /* lock for access to fifo */
+    pthread_cond_t  fifo_cond;  /* the main thread will signal on this cond after reading from fifo */
+    AVFifoBuffer *fifo;         /* demuxed packets are stored here; freed by the main thread */
+#endif
 } OutputFile;
 
 extern InputStream **input_streams;
