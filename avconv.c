@@ -1022,7 +1022,7 @@ FF_ENABLE_DEPRECATION_WARNINGS
     for (i = 0; i < nb_input_files; i++) {
         AVFormatContext *is = input_files[i]->ctx;
         int dropped_frames = 0;
-        
+
         for (int s = 0; s < is->nb_streams; ++s) {
             dropped_frames += is->streams[s]->dropped_frames;
         }
@@ -2136,13 +2136,13 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
 
         /* copy over start time side data */
         if (av_stream_get_side_data(ist->st, AV_PKT_DATA_STREAM_START_TIME, NULL)) {
-            int64_t *data, *new_data; 
+            int64_t *data, *new_data;
 
-            data = av_stream_get_side_data(ist->st, AV_PKT_DATA_STREAM_START_TIME, NULL);            
+            data = av_stream_get_side_data(ist->st, AV_PKT_DATA_STREAM_START_TIME, NULL);
             new_data = av_stream_new_side_data(ost->st, AV_PKT_DATA_STREAM_START_TIME, sizeof(int64_t));
-            
+
             if (new_data) *new_data = *data;
-            else av_log(NULL, AV_LOG_WARNING, "ERROR\n");
+            else av_log(NULL, AV_LOG_WARNING, "Error copying stream side data\n");
         }
     } else if (ost->stream_copy) {
         ret = init_output_stream_streamcopy(ost);
