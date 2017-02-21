@@ -565,23 +565,29 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
         {
             const uint32_t first_timewrap = 457200; // January 6, 1970, 7:00 UTC
             const uint32_t three_weeks = 3 * 7 * 24 * 60 * 60;
-            struct timeval tv;
-            int64_t millis;
             uint32_t stream_hash;
             time_t prev_wrap_timestamp;
             time_t next_wrap_timestamp;
             struct tm* timeinfo;
+            int64_t *stream_start, timestamp;
 
+            stream_start = av_stream_get_side_data(s->streams[pkt->stream_index], AV_PKT_DATA_STREAM_START_TIME, NULL);
+
+            if (!stream_start)
+            {
+                av_log(NULL, AV_LOG_ERROR, "Missing stream start time\n");
+                exit(1);
+            }    
+            
+            timestamp = *stream_start / 1000;
+            
             stream_hash = get_stream_hash(s->filename) % 18;
 
-            gettimeofday(&tv, NULL);
-            millis = 1000 * tv.tv_sec + tv.tv_usec / 1000;
-
-            prev_wrap_timestamp = first_timewrap + ((tv.tv_sec - first_timewrap - stream_hash * 10 * 60) / three_weeks * three_weeks) + stream_hash * 10 * 60;
+            prev_wrap_timestamp = first_timewrap + ((timestamp - first_timewrap - stream_hash * 10 * 60) / three_weeks * three_weeks) + stream_hash * 10 * 60;
             next_wrap_timestamp = prev_wrap_timestamp + three_weeks;
 
-            timeinfo = localtime(&tv.tv_sec);
-            av_log(s, AV_LOG_INFO, "Current timestamp: %zu, %s", tv.tv_sec, asctime(timeinfo));
+            timeinfo = localtime(&timestamp);
+            av_log(s, AV_LOG_INFO, "Current timestamp: %zu, %s", timestamp, asctime(timeinfo));
 
             timeinfo = localtime(&prev_wrap_timestamp);
             av_log(s, AV_LOG_INFO, "Previous stop on: %zu, %s", prev_wrap_timestamp, asctime(timeinfo));
@@ -589,7 +595,7 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
             timeinfo = localtime(&next_wrap_timestamp);
             av_log(s, AV_LOG_INFO, "Next stop on: %zu, %s", next_wrap_timestamp, asctime(timeinfo));
 
-            flv->delay = (millis - (int64_t)prev_wrap_timestamp * 1000) % 0x7FFFFFFF;
+            flv->delay = (*stream_start - (int64_t)prev_wrap_timestamp * 1000) % 0x7FFFFFFF;
             flv->stop_time = next_wrap_timestamp;
         }
         else

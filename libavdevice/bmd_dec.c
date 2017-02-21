@@ -165,6 +165,7 @@ typedef struct {
     int64_t         timeout;
     int64_t         queue_size;
     int64_t         last_time;
+    int64_t         start_time;
 } BMDCaptureContext;
 
 static AVStream *add_audio_stream(AVFormatContext *oc, DecklinkConf *conf)
@@ -344,6 +345,27 @@ static int video_callback(void *priv, uint8_t *frame,
         return ret;
     }
 
+    if (ctx->start_time == AV_NOPTS_VALUE) {
+        int64_t* time_data;
+        
+        ctx->start_time = av_gettime() / 1000;
+        
+        av_log(NULL, AV_LOG_INFO, "BMD start time: %lld\n", ctx->start_time);
+        
+        time_data = av_stream_new_side_data(ctx->video_st, AV_PKT_DATA_STREAM_START_TIME, sizeof(int64_t));
+        if (time_data) {
+            *time_data = ctx->start_time;
+        }
+        time_data = av_stream_new_side_data(ctx->audio_st, AV_PKT_DATA_STREAM_START_TIME, sizeof(int64_t));
+        if (time_data) {
+            *time_data = ctx->start_time;
+        }
+        time_data = av_stream_new_side_data(ctx->data_st, AV_PKT_DATA_STREAM_START_TIME, sizeof(int64_t));
+        if (time_data) {
+            *time_data = ctx->start_time;
+        }
+    }
+
     memcpy(pkt.buf->data, frame, stride * height);
 
     pkt.pts = pkt.dts = timestamp / ctx->video_st->time_base.num;
@@ -424,6 +446,7 @@ static int bmd_read_header(AVFormatContext *s)
     }
 
     ctx->last_time = av_gettime_relative();
+    ctx->start_time = AV_NOPTS_VALUE;
 
     decklink_capture_start(ctx->capture);
 
