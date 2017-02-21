@@ -3075,8 +3075,8 @@ static int transcode(void)
         print_report(0, timer_start);
     }
     #if HAVE_PTHREADS
-        free_input_threads();
         free_output_threads();
+        free_input_threads();
     #endif
 
     /* at the end of stream, we must flush the decoder buffers */
