@@ -28,7 +28,7 @@
 #include <signal.h>
 #include <limits.h>
 #include <stdint.h>
- 
+
 #include "libavformat/avformat.h"
 #include "libavdevice/avdevice.h"
 #include "libswscale/swscale.h"
@@ -278,22 +278,11 @@ static void write_packet(OutputFile *of, AVPacket *pkt, OutputStream *ost)
 {
     AVFormatContext *s = of->ctx;
     AVStream *st = ost->st;
-    int ret, hw;
+    int ret;
 
-    #if HAVE_PTHREADS
-        pthread_mutex_lock(&of->data_lock);
-    #endif
-    hw = of->header_written;
-    #if HAVE_PTHREADS
-        pthread_mutex_unlock(&of->data_lock);
-    #endif
-
-    if (!hw) {
+    if (!of->header_written) {
 
         AVPacket tmp_pkt;
-        #if HAVE_PTHREADS
-            pthread_mutex_lock(&ost->data_lock);
-        #endif
 
         /* the muxer is not initialized yet, buffer the packet */
         if (!av_fifo_space(ost->muxing_queue)) {
@@ -311,9 +300,7 @@ static void write_packet(OutputFile *of, AVPacket *pkt, OutputStream *ost)
         }
         av_packet_move_ref(&tmp_pkt, pkt);
         av_fifo_generic_write(ost->muxing_queue, &tmp_pkt, sizeof(tmp_pkt), NULL);
-        #if HAVE_PTHREADS
-            pthread_mutex_unlock(&ost->data_lock);
-        #endif
+
         return;
     }
 
@@ -756,7 +743,7 @@ static int poll_filter(OutputStream *ost)
 {
     OutputFile    *of = output_files[ost->file_index];
     AVFrame *filtered_frame = NULL;
-    int frame_size, ret;
+    int ret;
 
     if (!ost->filtered_frame && !(ost->filtered_frame = av_frame_alloc())) {
         return AVERROR(ENOMEM);
@@ -1014,7 +1001,6 @@ static void print_report(int is_last_report, int64_t timer_start)
     AVFormatContext *oc;
     int64_t total_size;
     AVCodecContext *enc;
-    AVCodecContext *dec;
     int frame_number, vid, i;
     double bitrate, ti1, pts;
     static int64_t last_time = -1;
@@ -1923,12 +1909,10 @@ static int check_init_output_file(OutputFile *of, int file_index)
     assert_avoptions(of->opts);
 
     #if HAVE_PTHREADS
-        pthread_mutex_lock(&of->data_lock);
+        pthread_mutex_lock(&of->fifo_lock);
     #endif
+
     of->header_written = 1;
-    #if HAVE_PTHREADS
-        pthread_mutex_unlock(&of->data_lock);
-    #endif
 
     av_dump_format(of->ctx, file_index, of->ctx->filename, 1);
 
@@ -1945,6 +1929,10 @@ static int check_init_output_file(OutputFile *of, int file_index)
             write_packet(of, &pkt, ost);
         }
     }
+
+    #if HAVE_PTHREADS
+        pthread_mutex_unlock(&of->fifo_lock);
+    #endif
 
     return 0;
 }
@@ -2297,8 +2285,8 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
         if (av_stream_get_side_data(ist->st, AV_PKT_DATA_STREAM_START_TIME, NULL)) {
             int64_t *data, *new_data;
 
-            data = av_stream_get_side_data(ist->st, AV_PKT_DATA_STREAM_START_TIME, NULL);
-            new_data = av_stream_new_side_data(ost->st, AV_PKT_DATA_STREAM_START_TIME, sizeof(int64_t));
+            data = (int64_t*)av_stream_get_side_data(ist->st, AV_PKT_DATA_STREAM_START_TIME, NULL);
+            new_data = (int64_t*)av_stream_new_side_data(ost->st, AV_PKT_DATA_STREAM_START_TIME, sizeof(int64_t));
 
             if (new_data) *new_data = *data;
             else av_log(NULL, AV_LOG_WARNING, "Error copying stream side data\n");
