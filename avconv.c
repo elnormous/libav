@@ -2598,20 +2598,12 @@ static void free_output_threads(void)
             continue;
 
         pthread_mutex_lock(&f->fifo_lock);
-        while (av_fifo_size(f->fifo)) {
-            av_fifo_generic_read(f->fifo, &pkt, sizeof(pkt), NULL);
-            av_packet_unref(&pkt);
-        }
         pthread_cond_signal(&f->fifo_cond);
         pthread_mutex_unlock(&f->fifo_lock);
 
         pthread_join(f->thread, NULL);
         f->joined = 1;
 
-        while (av_fifo_size(f->fifo)) {
-            av_fifo_generic_read(f->fifo, &pkt, sizeof(pkt), NULL);
-            av_packet_unref(&pkt);
-        }
         av_fifo_free(f->fifo);
     }
 }
@@ -2619,9 +2611,6 @@ static void free_output_threads(void)
 static int init_output_threads(void)
 {
     int i, ret;
-
-    if (nb_output_files == 1)
-        return 0;
 
     for (i = 0; i < nb_output_files; i++) {
         OutputFile *f = output_files[i];
