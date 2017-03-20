@@ -2862,6 +2862,7 @@ int avcodec_parameters_from_context(AVCodecParameters *par,
         par->color_space         = codec->colorspace;
         par->chroma_location     = codec->chroma_sample_location;
         par->sample_aspect_ratio = codec->sample_aspect_ratio;
+        par->gop_size            = codec->gop_size;
         break;
     case AVMEDIA_TYPE_AUDIO:
         par->format          = codec->sample_fmt;
@@ -2908,6 +2909,7 @@ int avcodec_parameters_to_context(AVCodecContext *codec,
         codec->colorspace             = par->color_space;
         codec->chroma_sample_location = par->chroma_location;
         codec->sample_aspect_ratio    = par->sample_aspect_ratio;
+        codec->gop_size               = par->gop_size;
         break;
     case AVMEDIA_TYPE_AUDIO:
         codec->sample_fmt      = par->format;

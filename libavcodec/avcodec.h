@@ -3593,6 +3593,8 @@ typedef struct AVCodecParameters {
      * audio without any trailing padding.
      */
     int trailing_padding;
+
+    int gop_size;
 } AVCodecParameters;
 
 /**

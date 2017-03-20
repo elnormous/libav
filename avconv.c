@@ -2592,7 +2592,6 @@ static void free_output_threads(void)
 
     for (i = 0; i < nb_output_files; i++) {
         OutputFile *f = output_files[i];
-        AVPacket pkt;
 
         if (!f->fifo || f->joined)
             continue;

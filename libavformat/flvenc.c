@@ -285,10 +285,10 @@ static void write_metadata(AVFormatContext *s, unsigned int ts)
     }
 
     for (i = 0; i < s->nb_streams; i++) {
-        AVCodecContext *enc = s->streams[i]->codec;
-        if (enc->codec_type == AVMEDIA_TYPE_VIDEO) {
+        AVCodecParameters *par = s->streams[i]->codecpar;
+        if (par->codec_type == AVMEDIA_TYPE_VIDEO) {
             put_amf_string(pb, "gopsize");
-            put_amf_double(pb, enc->gop_size);
+            put_amf_double(pb, par->gop_size);
             metadata_count++;
         }
     }
