@@ -1303,6 +1303,11 @@ static void do_streamcopy(InputStream *ist, OutputStream *ost, const AVPacket *p
             opkt.buf = av_buffer_create(opkt.data, opkt.size, av_buffer_default_free, NULL, 0);
             if (!opkt.buf)
                 exit_program(1);
+        } else if (pkt->data != NULL) {
+            opkt.buf = av_buffer_alloc(pkt->size);
+            memcpy(opkt.buf->data, pkt->data, pkt->size);
+            opkt.size = pkt->size;
+            opkt.data = opkt.buf->data;
         }
     } else {
         opkt.data = pkt->data;
