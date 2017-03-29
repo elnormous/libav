@@ -2589,6 +2589,7 @@ static void *output_thread(void *arg)
 static void free_output_threads(void)
 {
     int i;
+    AVFrame *filtered_frame;
 
     if (nb_output_files == 1)
         return;
@@ -2602,12 +2603,20 @@ static void free_output_threads(void)
             continue;
 
         pthread_mutex_lock(&f->fifo_lock);
+        while (av_fifo_size(f->fifo)) {
+            av_fifo_generic_read(f->fifo, &filtered_frame, sizeof(filtered_frame), NULL);
+            av_frame_free(&filtered_frame);
+        }
         pthread_cond_signal(&f->fifo_cond);
         pthread_mutex_unlock(&f->fifo_lock);
 
         pthread_join(f->thread, NULL);
         f->joined = 1;
 
+        while (av_fifo_size(f->fifo)) {
+            av_fifo_generic_read(f->fifo, &filtered_frame, sizeof(filtered_frame), NULL);
+            av_frame_free(&filtered_frame);
+        }
         av_fifo_free(f->fifo);
     }
 }
