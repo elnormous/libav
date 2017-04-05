@@ -1323,6 +1323,13 @@ static const AVCodecDescriptor codec_descriptors[] = {
         .props     = AV_CODEC_PROP_LOSSLESS,
     },
     {
+        .id        = AV_CODEC_ID_SCREENSHOTS,
+        .type      = AVMEDIA_TYPE_VIDEO,
+        .name      = "screenshots",
+        .long_name = NULL_IF_CONFIG_SMALL("Screenshots"),
+        .props     = AV_CODEC_PROP_LOSSLESS,
+    },
+    {
         .id        = AV_CODEC_ID_PPM,
         .type      = AVMEDIA_TYPE_VIDEO,
         .name      = "ppm",
