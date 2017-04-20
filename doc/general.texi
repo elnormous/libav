@@ -590,6 +590,7 @@ following image formats are supported:
 @item ANSI/ASCII art         @tab     @tab  X
 @item Apple Intermediate Codec @tab     @tab  X
 @item Apple MJPEG-B          @tab     @tab  X
+@item Apple Pixlet           @tab     @tab  X
 @item Apple ProRes           @tab  X  @tab  X
 @item Apple QuickDraw        @tab     @tab  X
     @tab fourcc: qdrw
@@ -625,6 +626,7 @@ following image formats are supported:
     @tab Amiga CD video codec
 @item Chinese AVS video      @tab  E  @tab  X
     @tab AVS1-P2, JiZhun profile, encoding through external library libxavs
+@item Cineform HD            @tab     @tab  X
 @item Delphine Software International CIN video  @tab     @tab  X
     @tab Codec used in Delphine Software International games.
 @item Discworld II BMV Video @tab     @tab  X
@@ -665,6 +667,7 @@ following image formats are supported:
 @item Flash Screen Video v2  @tab     @tab  X
 @item Flash Video (FLV)      @tab  X  @tab  X
     @tab Sorenson H.263 used in Flash
+@item FM Screen Capture Codec  @tab     @tab  X
 @item Forward Uncompressed   @tab     @tab  X
 @item Fraps                  @tab     @tab  X
 @item Go2Meeting             @tab     @tab  X

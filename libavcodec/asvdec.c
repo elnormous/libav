@@ -232,7 +232,7 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
             a->bitstream_buffer[i] = ff_reverse[buf[i]];
     }
 
-    bitstream_init(&a->bc, a->bitstream_buffer, buf_size * 8);
+    bitstream_init8(&a->bc, a->bitstream_buffer, buf_size);
 
     for (mb_y = 0; mb_y < a->mb_height2; mb_y++) {
         for (mb_x = 0; mb_x < a->mb_width2; mb_x++) {
@@ -282,7 +282,7 @@ static av_cold int decode_init(AVCodecContext *avctx)
     }
 
     ff_asv_common_init(avctx);
-    ff_blockdsp_init(&a->bdsp, avctx);
+    ff_blockdsp_init(&a->bdsp);
     ff_idctdsp_init(&a->idsp, avctx);
     init_vlcs(a);
     ff_init_scantable(a->idsp.idct_permutation, &a->scantable, ff_asv_scantab);

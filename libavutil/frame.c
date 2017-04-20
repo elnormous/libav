@@ -19,6 +19,7 @@
 #include "channel_layout.h"
 #include "buffer.h"
 #include "common.h"
+#include "cpu.h"
 #include "dict.h"
 #include "frame.h"
 #include "imgutils.h"
@@ -102,6 +103,9 @@ static int get_video_buffer(AVFrame *frame, int align)
                                       frame->width);
         if (ret < 0)
             return ret;
+
+        if (align <= 0)
+            align = av_cpu_max_align();
 
         for (i = 0; i < 4 && frame->linesize[i]; i++)
             frame->linesize[i] = FFALIGN(frame->linesize[i], align);
@@ -313,6 +317,8 @@ void av_frame_unref(AVFrame *frame)
 
     av_buffer_unref(&frame->hw_frames_ctx);
 
+    av_buffer_unref(&frame->opaque_ref);
+
     get_frame_defaults(frame);
 }
 
@@ -390,6 +396,10 @@ int av_frame_copy_props(AVFrame *dst, const AVFrame *src)
     dst->key_frame              = src->key_frame;
     dst->pict_type              = src->pict_type;
     dst->sample_aspect_ratio    = src->sample_aspect_ratio;
+    dst->crop_top               = src->crop_top;
+    dst->crop_bottom            = src->crop_bottom;
+    dst->crop_left              = src->crop_left;
+    dst->crop_right             = src->crop_right;
     dst->pts                    = src->pts;
     dst->repeat_pict            = src->repeat_pict;
     dst->interlaced_frame       = src->interlaced_frame;
@@ -430,6 +440,13 @@ FF_ENABLE_DEPRECATION_WARNINGS
         }
         memcpy(sd_dst->data, sd_src->data, sd_src->size);
         av_dict_copy(&sd_dst->metadata, sd_src->metadata, 0);
+    }
+
+    av_buffer_unref(&dst->opaque_ref);
+    if (src->opaque_ref) {
+        dst->opaque_ref = av_buffer_ref(src->opaque_ref);
+        if (!dst->opaque_ref)
+            return AVERROR(ENOMEM);
     }
 
     return 0;

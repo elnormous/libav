@@ -613,7 +613,7 @@ static int avi_read_header(AVFormatContext *s)
                         avio_skip(pb, size);
                         break;
                     }
-                    tag1 = ff_get_bmp_header(pb, st);
+                    tag1 = ff_get_bmp_header(pb, st, NULL);
 
                     if (tag1 == MKTAG('D', 'X', 'S', 'B') ||
                         tag1 == MKTAG('D', 'X', 'S', 'A')) {
@@ -901,7 +901,7 @@ static int read_gab2_sub(AVStream *st, AVPacket *pkt)
         return 1;
 
 error:
-        av_freep(&pb);
+        avio_context_free(&pb);
     }
     return 0;
 }
@@ -1576,7 +1576,7 @@ static int avi_read_close(AVFormatContext *s)
         AVIStream *ast = st->priv_data;
         if (ast) {
             if (ast->sub_ctx) {
-                av_freep(&ast->sub_ctx->pb);
+                avio_context_free(&ast->sub_ctx->pb);
                 avformat_close_input(&ast->sub_ctx);
             }
             av_free(ast->sub_buffer);

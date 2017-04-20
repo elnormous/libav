@@ -53,6 +53,12 @@
  * from the input AVPacket.
  */
 #define FF_CODEC_CAP_SETS_PKT_DTS           (1 << 2)
+/**
+ * The decoder sets the cropping fields in the output frames manually.
+ * If this cap is set, the generic code will initialize output frame
+ * dimensions to coded rather than display values.
+ */
+#define FF_CODEC_CAP_EXPORTS_CROPPING       (1 << 3)
 
 #ifdef DEBUG
 #   define ff_dlog(ctx, ...) av_log(ctx, AV_LOG_DEBUG, __VA_ARGS__)
@@ -67,9 +73,7 @@
 #endif
 
 
-#if !FF_API_QUANT_BIAS
 #define FF_DEFAULT_QUANT_BIAS 999999
-#endif
 
 #define FF_SANE_NB_CHANNELS 63U
 
@@ -93,6 +97,16 @@ typedef struct FramePool {
     int channels;
     int samples;
 } FramePool;
+
+typedef struct DecodeSimpleContext {
+    AVPacket *in_pkt;
+    AVFrame  *out_frame;
+} DecodeSimpleContext;
+
+typedef struct DecodeFilterContext {
+    AVBSFContext **bsfs;
+    int         nb_bsfs;
+} DecodeFilterContext;
 
 typedef struct AVCodecInternal {
     /**
@@ -130,11 +144,14 @@ typedef struct AVCodecInternal {
 
     void *thread_ctx;
 
+    DecodeSimpleContext ds;
+    DecodeFilterContext filter;
+
     /**
-     * Current packet as passed into the decoder, to avoid having to pass the
-     * packet into every function.
+     * Properties (timestamps+side data) extracted from the last packet passed
+     * for decoding.
      */
-    AVPacket *pkt;
+    AVPacket *last_pkt_props;
 
     /**
      * hwaccel-specific private data
@@ -153,6 +170,16 @@ typedef struct AVCodecInternal {
     int buffer_pkt_valid; // encoding: packet without data can be valid
     AVFrame *buffer_frame;
     int draining_done;
+    /* set to 1 when the caller is using the old decoding API */
+    int compat_decode;
+    int compat_decode_warned;
+    /* this variable is set by the decoder internals to signal to the old
+     * API compat wrappers the amount of data consumed from the last packet */
+    size_t compat_decode_consumed;
+    /* when a partial packet has been consumed, this stores the remaining size
+     * of the packet (that should be submitted in the next decode call */
+    size_t compat_decode_partial_size;
+    AVFrame *compat_decode_frame;
 } AVCodecInternal;
 
 struct AVCodecDefault {

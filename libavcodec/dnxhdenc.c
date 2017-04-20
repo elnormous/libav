@@ -313,7 +313,7 @@ static av_cold int dnxhd_encode_init(AVCodecContext *avctx)
 
     avctx->bits_per_raw_sample = ctx->cid_table->bit_depth;
 
-    ff_blockdsp_init(&ctx->bdsp, avctx);
+    ff_blockdsp_init(&ctx->bdsp);
     ff_fdctdsp_init(&ctx->m.fdsp, avctx);
     ff_mpv_idct_init(&ctx->m);
     ff_mpegvideoencdsp_init(&ctx->m.mpvencdsp, avctx);
@@ -343,12 +343,6 @@ static av_cold int dnxhd_encode_init(AVCodecContext *avctx)
 
     ctx->m.mb_num = ctx->m.mb_height * ctx->m.mb_width;
 
-#if FF_API_QUANT_BIAS
-FF_DISABLE_DEPRECATION_WARNINGS
-    if (avctx->intra_quant_bias != FF_DEFAULT_QUANT_BIAS)
-        ctx->intra_quant_bias = avctx->intra_quant_bias;
-FF_ENABLE_DEPRECATION_WARNINGS
-#endif
     // XXX tune lbias/cbias
     if ((ret = dnxhd_init_qmat(ctx, ctx->intra_quant_bias, 0)) < 0)
         return ret;

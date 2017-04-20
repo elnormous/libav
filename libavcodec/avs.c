@@ -125,7 +125,7 @@ avs_decode_frame(AVCodecContext * avctx,
         int map_size = ((318 / vect_w + 7) / 8) * (198 / vect_h);
         if (buf_end - table < map_size)
             return AVERROR_INVALIDDATA;
-        bitstream_init(&change_map, table, map_size * 8);
+        bitstream_init8(&change_map, table, map_size);
         table += map_size;
     }
 
@@ -186,4 +186,5 @@ AVCodec ff_avs_decoder = {
     .decode         = avs_decode_frame,
     .close          = avs_decode_end,
     .capabilities   = AV_CODEC_CAP_DR1,
+    .caps_internal  = FF_CODEC_CAP_INIT_THREADSAFE,
 };

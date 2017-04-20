@@ -24,9 +24,7 @@
 
 #include <config.h>
 
-#if CONFIG_GCRYPT
-#include <gcrypt.h>
-#elif CONFIG_OPENSSL
+#if CONFIG_OPENSSL
 #include <openssl/rand.h>
 #endif
 
@@ -86,10 +84,7 @@ typedef struct HLSContext {
 
 static int randomize(uint8_t *buf, int len)
 {
-#if CONFIG_GCRYPT
-    gcry_randomize(buf, len, GCRY_VERY_STRONG_RANDOM);
-    return 0;
-#elif CONFIG_OPENSSL
+#if CONFIG_OPENSSL
     if (RAND_bytes(buf, len))
         return 0;
     return AVERROR(EIO);
@@ -107,11 +102,12 @@ static void free_encryption(AVFormatContext *s)
     av_freep(&hls->key_basename);
 }
 
-static int dict_set_bin(AVDictionary **dict, const char *key, uint8_t *buf)
+static int dict_set_bin(AVDictionary **dict, const char *key,
+                        uint8_t *buf, size_t len)
 {
     char hex[33];
 
-    ff_data_to_hex(hex, buf, sizeof(buf), 0);
+    ff_data_to_hex(hex, buf, len, 0);
     hex[32] = '\0';
 
     return av_dict_set(dict, key, hex, 0);
@@ -141,7 +137,7 @@ static int setup_encryption(AVFormatContext *s)
             return AVERROR(EINVAL);
         }
 
-        if ((ret = dict_set_bin(&hls->enc_opts, "key", hls->key)) < 0)
+        if ((ret = dict_set_bin(&hls->enc_opts, "key", hls->key, hls->key_len)) < 0)
             return ret;
         k = hls->key;
     } else {
@@ -150,7 +146,7 @@ static int setup_encryption(AVFormatContext *s)
             return ret;
         }
 
-        if ((ret = dict_set_bin(&hls->enc_opts, "key", buf)) < 0)
+        if ((ret = dict_set_bin(&hls->enc_opts, "key", buf, sizeof(buf))) < 0)
             return ret;
         k = buf;
     }
@@ -163,7 +159,7 @@ static int setup_encryption(AVFormatContext *s)
             return AVERROR(EINVAL);
         }
 
-        if ((ret = dict_set_bin(&hls->enc_opts, "iv", hls->iv)) < 0)
+        if ((ret = dict_set_bin(&hls->enc_opts, "iv", hls->iv, hls->iv_len)) < 0)
             return ret;
     }
 
