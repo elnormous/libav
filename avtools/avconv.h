@@ -49,6 +49,14 @@
 #define VSYNC_CFR         1
 #define VSYNC_VFR         2
 
+#if HAVE_PTHREADS
+#define MUTEX_LOCK(X) pthread_mutex_lock(X)
+#define MUTEX_UNLOCK(X) pthread_mutex_unlock(X);
+#else
+#define MUTEX_LOCK(X) 
+#define MUTEX_UNLOCK(X)
+#endif
+
 enum HWAccelID {
     HWACCEL_NONE = 0,
     HWACCEL_AUTO,
