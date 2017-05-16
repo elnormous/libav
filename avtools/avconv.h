@@ -438,6 +438,11 @@ typedef struct OutputStream {
     uint64_t frames_encoded;
     uint64_t samples_encoded;
 
+    /* for current fps stats */
+    int64_t current_fps_measure_start;
+    int current_fps_agregator;
+    int current_fps;
+
     /* packet quality factor */
     int quality;
 

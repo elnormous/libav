@@ -635,6 +635,24 @@ static void do_video_out(OutputFile *of,
         MUTEX_UNLOCK(&ost->data_lock);
     }
 
+    // current fps meassure
+    {
+        int64_t ct = av_gettime_relative();
+
+        MUTEX_LOCK(&ost->data_lock);
+
+        ++ost->current_fps_agregator;
+
+        if (ost->current_fps_measure_start < ct - 1000000)
+        {
+            ost->current_fps_measure_start = ct;
+            ost->current_fps = ost->current_fps_agregator;
+            ost->current_fps_agregator = 0;
+        }
+
+        MUTEX_UNLOCK(&ost->data_lock);
+    }
+
     return;
 error:
     av_assert0(ret != AVERROR(EAGAIN) && ret != AVERROR_EOF);
@@ -1039,8 +1057,8 @@ static void print_report(int is_last_report, int64_t timer_start)
         if (!vid && enc->codec_type == AVMEDIA_TYPE_VIDEO) {
             float t = (av_gettime_relative() - timer_start) / 1000000.0;
 
-            snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "frame=%5d fps=%3d q=%3.1f ",
-                     frame_number, (t > 1) ? (int)(frame_number / t + 0.5) : 0, q);
+            snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "frame=%5d avg_fps=%3d cur_fps=%3d q=%3.1f ",
+                     frame_number, (t > 1) ? (int)(frame_number / t + 0.5) : 0, ost->current_fps, q);
             if (is_last_report)
                 snprintf(buf + strlen(buf), sizeof(buf) - strlen(buf), "L");
             if (qp_hist) {
