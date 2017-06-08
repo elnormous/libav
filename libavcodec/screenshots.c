@@ -29,7 +29,6 @@ typedef struct ScreenshotsContext {
     unsigned int timeout; // seconds
     char* qualities;
     char* folder;
-    char* filenames;
 
     Screenshot* screenshots;
     int nb_screenshots;
@@ -141,7 +140,6 @@ static int screenshots_frame(AVCodecContext *avctx, AVPacket *pkt,
 
             // encode / save to files
             save_frame(scaled, s->screenshots[i].filename, "jpg", AV_CODEC_ID_JPEG2000, 5);
-            save_frame(scaled, s->screenshots[i].filename, "png", AV_CODEC_ID_PNG, 5);
 
             av_frame_free(&scaled);
         }
@@ -164,16 +162,16 @@ static av_cold int screenshots_close(AVCodecContext *avctx)
 static av_cold int screenshots_init(AVCodecContext *avctx)
 {
     ScreenshotsContext *s = avctx->priv_data;
-    char *fileToken, *qualityToken, *sizeToken, *str;
+    char *qualityToken, *sizeToken, *str;
     int cnt = 0;
 
-    if (s->filenames == NULL || s->qualities == NULL) {
-        av_log(NULL, AV_LOG_ERROR, "Filename(s) not passed for screenshots\n");
+    if (s->qualities == NULL) {
+        av_log(NULL, AV_LOG_ERROR, "Qualities not passed for screenshots\n");
         exit_program(1);
     }
 
     // count files
-    str = s->filenames;
+    str = s->qualities;
     for (cnt = 0; *str; str++)
         if (*str == ',') cnt++;
     cnt++;
@@ -183,30 +181,25 @@ static av_cold int screenshots_init(AVCodecContext *avctx)
 
     // parse filenames and qualities
     cnt = 0;
-    while (fileToken = strsep(&s->filenames, ",")) {
+    while ((qualityToken = strsep(&s->qualities, ","))) {
 
-        if (qualityToken = strsep(&s->qualities, ",")) {
-
+        if ((sizeToken = strsep(&qualityToken, ":"))) {
             if (strlen(s->folder) > 0) {
-                s->screenshots[cnt].filename = av_mallocz(strlen(s->folder) + strlen(fileToken) + 2);
+                s->screenshots[cnt].filename = av_mallocz(strlen(s->folder) + strlen(sizeToken) + 2);
                 memcpy(s->screenshots[cnt].filename, s->folder, strlen(s->folder));
                 s->screenshots[cnt].filename[strlen(s->folder)] = '/';
-                memcpy(s->screenshots[cnt].filename + strlen(s->folder) + 1, fileToken, strlen(fileToken));
+                memcpy(s->screenshots[cnt].filename + strlen(s->folder) + 1, sizeToken, strlen(sizeToken));
             } else {
-                s->screenshots[cnt].filename = av_mallocz(strlen(fileToken) + 1);
-                memcpy(s->screenshots[cnt].filename, fileToken, strlen(fileToken));
+                s->screenshots[cnt].filename = av_mallocz(strlen(sizeToken) + 1);
+                memcpy(s->screenshots[cnt].filename, sizeToken, strlen(sizeToken));
             }
+        }
 
-            if (sizeToken = strsep(&qualityToken, ":")) {
-                s->screenshots[cnt].width = atoi(sizeToken);
-            }
-            if (sizeToken = strsep(&qualityToken, ":")) {
-                s->screenshots[cnt].height = atoi(sizeToken);
-            }
-
-        } else {
-            av_log(NULL, AV_LOG_ERROR, "No coresponding screenshot quality to filename\n");
-            exit_program(1);
+        if ((sizeToken = strsep(&qualityToken, ":"))) {
+            s->screenshots[cnt].width = atoi(sizeToken);
+        }
+        if ((sizeToken = strsep(&qualityToken, ":"))) {
+            s->screenshots[cnt].height = atoi(sizeToken);
         }
 
         cnt++;
@@ -221,9 +214,8 @@ static av_cold int screenshots_init(AVCodecContext *avctx)
 #define VE AV_OPT_FLAG_VIDEO_PARAM | AV_OPT_FLAG_ENCODING_PARAM
 static const AVOption options[] = {
     { "timeout",   "seconds between screenshot generation",                             OFFSET(timeout),    AV_OPT_TYPE_INT, { .i64 = 30 },  0, INT_MAX, VE},
-    { "qualities", "Qualities to generate seperated by coma (1920:1080,1280:720,...)",  OFFSET(qualities),  AV_OPT_TYPE_STRING, { 0 }, 0, 0, VE},
+    { "qualities", "Qualities to generate - name and size seperated by comma (HD:1920:1080,MED:1280:720,...)",  OFFSET(qualities),  AV_OPT_TYPE_STRING, { 0 }, 0, 0, VE},
     { "folder",    "Folder in which to store screenshots",                              OFFSET(folder),     AV_OPT_TYPE_STRING, { .str="" }, 0, 0, VE},
-    { "filenames", "Names without extension seperated by coma (bj_hd,bj_med,...)",      OFFSET(filenames),  AV_OPT_TYPE_STRING, { 0 }, 0, 0, VE},
     { NULL},
 };
 
@@ -244,8 +236,15 @@ AVCodec ff_screenshots_encoder = {
     .close          = screenshots_close,
     .encode2        = screenshots_frame,
     .pix_fmts       = (const enum AVPixelFormat[]) {
-        AV_PIX_FMT_RGB24, AV_PIX_FMT_RGB32, AV_PIX_FMT_PAL8, AV_PIX_FMT_GRAY8,
-        AV_PIX_FMT_RGBA64BE, AV_PIX_FMT_RGB48BE, AV_PIX_FMT_GRAY16BE,
-        AV_PIX_FMT_MONOBLACK, AV_PIX_FMT_NONE
+        AV_PIX_FMT_RGB24, AV_PIX_FMT_RGBA, AV_PIX_FMT_RGB48,
+        AV_PIX_FMT_RGBA64,
+        AV_PIX_FMT_GRAY8, AV_PIX_FMT_GRAY16, AV_PIX_FMT_YA8,
+        AV_PIX_FMT_YUV420P, AV_PIX_FMT_YUV422P, AV_PIX_FMT_YUVA420P,
+        AV_PIX_FMT_YUV440P, AV_PIX_FMT_YUV444P,
+        AV_PIX_FMT_YUV411P, AV_PIX_FMT_YUV410P,
+        AV_PIX_FMT_YUV420P9, AV_PIX_FMT_YUV422P9, AV_PIX_FMT_YUV444P9,
+        AV_PIX_FMT_YUV420P10, AV_PIX_FMT_YUV422P10, AV_PIX_FMT_YUV444P10,
+        AV_PIX_FMT_YUV420P16, AV_PIX_FMT_YUV422P16, AV_PIX_FMT_YUV444P16,
+        AV_PIX_FMT_NONE
     },
 };
