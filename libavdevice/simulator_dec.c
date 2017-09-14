@@ -360,10 +360,6 @@ static void convertRawUYVYtoYUV420P(const uint8_t* srcData,
     const int UVStride = (W + 1) / 2;
     const int UVRows = (H + 1) / 2;
 
-//    const int size = YStride * H + UVStride * UVRows * 2;
-
-    // ---
-
     uint8_t* Ys = &dst[0];
     uint8_t* Us = Ys + YStride * H;
     uint8_t* Vs = Us + UVStride * UVRows;
@@ -373,11 +369,13 @@ static void convertRawUYVYtoYUV420P(const uint8_t* srcData,
 
     for (int y = 0; y < H; y++)
     {
-        data = &srcData[y * stride];
         int x = 0;
+        data = &srcData[y * stride];
+
         if (y < H - 1) // can't store Us in this way
             while (x + 7 < UVStride)
             {
+                __m128i uvs, vs, us;
                 __m128i px1 = _mm_loadu_si128((__m128i*)&data[0]);
                 __m128i ypx1 = _mm_srli_epi16(px1, 8);
                 __m128i px2 = _mm_loadu_si128((__m128i*)&data[16]);
@@ -390,9 +388,9 @@ static void convertRawUYVYtoYUV420P(const uint8_t* srcData,
                 ypx2 = _mm_slli_epi16(px2, 8);
                 ypx2 = _mm_srli_epi16(ypx2, 8);
 
-                __m128i uvs = _mm_packus_epi16(ypx1, ypx2);
-                __m128i vs = _mm_srli_epi16(uvs, 8);
-                __m128i us = _mm_slli_epi16(uvs, 8);
+                uvs = _mm_packus_epi16(ypx1, ypx2);
+                vs = _mm_srli_epi16(uvs, 8);
+                us = _mm_slli_epi16(uvs, 8);
                 us = _mm_srli_epi16(us, 8);
 
                 _mm_storeu_si128((__m128i*)(&Us[x]), _mm_packus_epi16(us, zeros));
@@ -416,9 +414,9 @@ static void convertRawUYVYtoYUV420P(const uint8_t* srcData,
 
         if (++y < H)
         {
+            int x = 0;
             data = &srcData[y * stride];
 
-            int x = 0;
             while (x + 7 < UVStride)
             {
                 __m128i px1 = _mm_srli_epi16(_mm_loadu_si128((__m128i*)&data[0]), 8);
@@ -552,13 +550,14 @@ static int simulator_read_header(AVFormatContext *s)
 {
     SContext *ctx = s->priv_data;
     int ret;
+    FILE *file;
 
     ctx->stop_threads = 0;
 
     if ((ret = packet_queue_init(&ctx->q)) < 0)
         return ret;
 
-    FILE *file = fopen(ctx->frame_file, "r");
+    file = fopen(ctx->frame_file, "r");
     if(!file)
     {
         ret = AVERROR(EIO);
