@@ -36,6 +36,8 @@
 #include <inttypes.h>
 #include <pthread.h>
 #include <libbmd/decklink_capture.h>
+#include <emmintrin.h>
+#include <smmintrin.h>
 
 typedef struct PacketQueue {
     AVPacketList *first_pkt, *last_pkt;
@@ -153,6 +155,91 @@ static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block)
     return ret;
 }
 
+static void convertRawUYVYtoYUV420P(const uint8_t* srcData,
+                                    const int W, const int H, const int stride,
+                                    uint8_t* dst)
+{
+    const int YStride = W;
+    const int UVStride = (W + 1) / 2;
+    const int UVRows = (H + 1) / 2;
+
+    uint8_t* Ys = &dst[0];
+    uint8_t* Us = Ys + YStride * H;
+    uint8_t* Vs = Us + UVStride * UVRows;
+
+    const uint8_t* data = srcData;
+    __m128i zeros = _mm_setzero_si128();
+
+    for (int y = 0; y < H; y++)
+    {
+        int x = 0;
+        data = &srcData[y * stride];
+
+        if (y < H - 1) // can't store Us in this way
+            while (x + 7 < UVStride)
+            {
+                __m128i uvs, vs, us;
+                __m128i px1 = _mm_loadu_si128((__m128i*)&data[0]);
+                __m128i ypx1 = _mm_srli_epi16(px1, 8);
+                __m128i px2 = _mm_loadu_si128((__m128i*)&data[16]);
+                __m128i ypx2 = _mm_srli_epi16(px2, 8);
+                _mm_storeu_si128((__m128i*)(Ys), _mm_packus_epi16(ypx1, ypx2));
+
+                // how to get us & vs..
+                ypx1 = _mm_slli_epi16(px1, 8);
+                ypx1 = _mm_srli_epi16(ypx1, 8);
+                ypx2 = _mm_slli_epi16(px2, 8);
+                ypx2 = _mm_srli_epi16(ypx2, 8);
+
+                uvs = _mm_packus_epi16(ypx1, ypx2);
+                vs = _mm_srli_epi16(uvs, 8);
+                us = _mm_slli_epi16(uvs, 8);
+                us = _mm_srli_epi16(us, 8);
+
+                _mm_storeu_si128((__m128i*)(&Us[x]), _mm_packus_epi16(us, zeros));
+                _mm_storeu_si128((__m128i*)(&Vs[x]), _mm_packus_epi16(vs, zeros));
+
+                x += 8;
+                data += 32;
+                Ys += 16;
+            }
+
+        for (; x < UVStride; x++, data += 4, Ys += 2)
+        {
+            Ys[0] = data[1];
+            Ys[1] = data[3];
+            Us[x] = data[0];
+            Vs[x] = data[2];
+        }
+        //        Ys += YStride;
+        Us += UVStride;
+        Vs += UVStride;
+
+        if (++y < H)
+        {
+            int x = 0;
+            data = &srcData[y * stride];
+
+            while (x + 7 < UVStride)
+            {
+                __m128i px1 = _mm_srli_epi16(_mm_loadu_si128((__m128i*)&data[0]), 8);
+                __m128i px2 = _mm_srli_epi16(_mm_loadu_si128((__m128i*)&data[16]), 8);
+                _mm_storeu_si128((__m128i*)(Ys), _mm_packus_epi16(px1, px2));
+
+                x += 8;
+                data += 32;
+                Ys += 16;
+            }
+
+            for (; x < UVStride; x++, data += 4, Ys += 2)
+            {
+                Ys[0] = data[1];
+                Ys[1] = data[3];
+            }
+        }
+    }
+}
+
 typedef struct {
     const AVClass   *class;    /**< Class for private options. */
     DecklinkCapture *capture;
@@ -267,7 +354,8 @@ static AVStream *add_video_stream(AVFormatContext *oc, DecklinkConf *conf)
     switch (conf->pixel_format) {
     // YUV first
     case 0:
-        c->format    = AV_PIX_FMT_UYVY422;
+//        c->format    = AV_PIX_FMT_UYVY422;
+        c->format    = AV_PIX_FMT_YUV420P; // there is pixel format conversion when receiving frame
         c->codec_id  = AV_CODEC_ID_RAWVIDEO;
         c->codec_tag = avcodec_pix_fmt_to_codec_tag(c->format);
     break;
@@ -337,13 +425,7 @@ static int video_callback(void *priv, uint8_t *frame,
     BMDCaptureContext *ctx = priv;
     AVCodecParameters *c = ctx->video_st->codecpar;
     AVPacket pkt;
-    int ret;
-
-    ret = av_new_packet(&pkt, stride * height);
-
-    if (ret != 0) {
-        return ret;
-    }
+    int ret, pkt_size;
 
     if (ctx->start_time == AV_NOPTS_VALUE) {
         int64_t* time_data;
@@ -366,7 +448,21 @@ static int video_callback(void *priv, uint8_t *frame,
         }
     }
 
-    memcpy(pkt.buf->data, frame, stride * height);
+    pkt_size = ctx->conf.pixel_format == 0 ? width * height * 1.5 : stride * height;
+    ret = av_new_packet(&pkt, pkt_size);
+
+    if (ret != 0) {
+        return ret;
+    }
+
+    switch (ctx->conf.pixel_format) {
+        case 0:
+            convertRawUYVYtoYUV420P(frame, width, height, stride, pkt.data);
+            break;
+        default:
+            memcpy(pkt.buf->data, frame, pkt_size);
+    }
+
 
     pkt.pts = pkt.dts = timestamp / ctx->video_st->time_base.num;
     pkt.duration      = duration  / ctx->video_st->time_base.num;
