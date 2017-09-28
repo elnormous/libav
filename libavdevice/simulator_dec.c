@@ -176,7 +176,6 @@ typedef struct {
     int             wallclock;
     int64_t         timeout;
     int64_t         queue_size;
-    int64_t         last_time;
     int64_t         start_time;
 } SContext;
 
@@ -264,44 +263,9 @@ static AVStream *add_video_stream(AVFormatContext *oc)
 
     c->field_order = AV_FIELD_PROGRESSIVE;
 
-//    switch (conf->field_mode) {
-//        case 1:
-//            c->field_order = AV_FIELD_TT;
-//            break;
-//        case 2:
-//            c->field_order = AV_FIELD_BB;
-//            break;
-//        case 3:
-//            c->field_order = AV_FIELD_PROGRESSIVE;
-//            break;
-//        default:
-//        case 0:
-//            c->field_order = AV_FIELD_UNKNOWN;
-//            break;
-//    }
-
-//    c->format    = AV_PIX_FMT_UYVY422;
     c->format    = AV_PIX_FMT_YUV420P;
     c->codec_id  = AV_CODEC_ID_RAWVIDEO;
     c->codec_tag = avcodec_pix_fmt_to_codec_tag(c->format);
-
-//    switch (conf->pixel_format) {
-//            // YUV first
-//        case 0:
-//            c->format    = AV_PIX_FMT_UYVY422;
-//            c->codec_id  = AV_CODEC_ID_RAWVIDEO;
-//            c->codec_tag = avcodec_pix_fmt_to_codec_tag(c->format);
-//            break;
-//        case 1:
-//            c->format                = AV_PIX_FMT_YUV422P10;
-//            c->codec_id              = AV_CODEC_ID_V210;
-//            c->bits_per_coded_sample = 10;
-//            break;
-//            // RGB later
-//        default:
-//            av_log(oc, AV_LOG_ERROR, "pixel format is not supported.\n");
-//            return NULL;
-//    }
 
     return st;
 }
@@ -313,11 +277,6 @@ static int simulator_read_close(AVFormatContext *s)
     ctx->stop_threads = 1;
 
     pthread_join(ctx->v_thread, NULL);
-
-//    if (ctx->capture) {
-//        decklink_capture_stop(ctx->capture);
-//        decklink_capture_free(ctx->capture);
-//    }
 
     packet_queue_end(&ctx->q);
 
@@ -439,18 +398,13 @@ static void convertRawUYVYtoYUV420P(const uint8_t* srcData,
 
 static void* video_callback(void *priv)
 {
-//    uint8_t *frame,
-//    int width, int height, int stride,
     int64_t timestamp = 1;
-//    int64_t duration,
-//    int64_t flags
 
     SContext *ctx = priv;
     int64_t previous = 0; //av_gettime();
 
     while (!ctx->stop_threads)
     {
-        //    AVCodecParameters *c = ctx->video_st->codecpar;
         AVPacket pkt;
         int ret;
 
@@ -461,7 +415,6 @@ static void* video_callback(void *priv)
         }
         previous = av_gettime();
 
-//        av_image_get_buffer_size(AV_PIX_FMT_YUV420P, 1920, 1080, 1)
         ret = av_new_packet(&pkt, 1920 * 1080 * 1.5);
 
         if (ret != 0) {
@@ -489,7 +442,6 @@ static void* video_callback(void *priv)
             }
         }
 
-//        memcpy(pkt.buf->data, ctx->raw_frame, ctx->frame_size);
         convertRawUYVYtoYUV420P(ctx->raw_frame, 1920, 1080, 1920 * 2, pkt.data);
 
         pkt.pts = pkt.dts = timestamp; //timestamp / ctx->video_st->time_base.num;
@@ -581,7 +533,6 @@ static int simulator_read_header(AVFormatContext *s)
         goto out;
     }
 
-    ctx->last_time = av_gettime_relative();
     ctx->start_time = AV_NOPTS_VALUE;
 
     pthread_create(&ctx->v_thread, NULL, &video_callback, (void*)ctx);
@@ -595,35 +546,18 @@ out:
 static int simulator_read_packet(AVFormatContext *s, AVPacket *pkt)
 {
     SContext *ctx = s->priv_data;
-    int ret;
 
     if (ctx->stop_threads)
     {
         return AVERROR_EOF;
     }
 
-    if (ctx->timeout > 0 && av_gettime_relative() - ctx->last_time > ctx->timeout * 1000000) {
-        ret = AVERROR_STREAM_NOT_FOUND;
-        av_log(NULL, AV_LOG_ERROR, "didn't receive video input for %" PRId64 " seconds.\n", ctx->timeout);
-    }
-    else {
-        ret = packet_queue_get(&ctx->q, pkt, 0);
-
-        if (ret != AVERROR(EAGAIN)) {
-            ctx->last_time = av_gettime_relative();
-        }
-    }
-
-    return ret;
+    return packet_queue_get(&ctx->q, pkt, 0);
 }
 
 #define OC(x) offsetof(SContext, x)
 #define D AV_OPT_FLAG_DECODING_PARAM
 static const AVOption options[] = {
-//    { "instance",         "Device instance",    OD(instance),         AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-//    { "video_mode",       "Video mode, -1 to enable video mode auto detection",         OD(video_mode),       AV_OPT_TYPE_INT, {.i64 = 0}, -1, INT_MAX, D },
-//    { "video_connection", "Video connection",   OD(video_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-//    { "video_format",     "Video pixel format", OD(pixel_format),     AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { "max", "File cnt to generate",   OC(max_frame_cnt), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { "video_timeout",    "Video timeout (in seconds), 0 to disable the timeout",      OC(timeout),          AV_OPT_TYPE_INT64, {.i64 = 3}, 0, INT_MAX, D },
     { "queue_size",       "Packet queue size, 0 to disable the queue limit",  OC(queue_size),       AV_OPT_TYPE_INT64, {.i64 = 25}, 0, INT_MAX, D },
