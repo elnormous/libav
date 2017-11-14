@@ -39,7 +39,7 @@ static av_cold int audiometer_write_header(AVFormatContext *s1)
     s->time_base = st->time_base;
 
     // connect to server
-    int ret = getaddrinfo(s1->filename, "5672", NULL, &info);
+    int ret = getaddrinfo(s1->filename, "7777", NULL, &info);
 
     if (ret != 0)
     {
