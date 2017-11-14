@@ -5,8 +5,8 @@
  */
 
 #include "libavutil/internal.h"
-
 #include "libavformat/avformat.h"
+
 
 typedef struct AudioMeterContext {
     AVClass *class;
@@ -25,13 +25,6 @@ static av_cold int audiometer_write_header(AVFormatContext *s1)
     st = s1->streams[0];
     sample_rate = st->codecpar->sample_rate;
     codec_id    = st->codecpar->codec_id;
-
-    if (sample_rate != st->codecpar->sample_rate) {
-        av_log(s1, AV_LOG_ERROR,
-               "sample rate %d not available, nearest is %d\n",
-               st->codecpar->sample_rate, sample_rate);
-        goto fail;
-    }
 
     s1->filename;
 
@@ -58,6 +51,7 @@ static int audiometer_write_packet(AVFormatContext *s1, AVPacket *pkt)
         s->reorder_func(buf, s->reorder_buf, size);
         buf = s->reorder_buf;
     }*/
+    printf("received\n");
 
     return 0;
 }
@@ -72,7 +66,7 @@ AVOutputFormat ff_audiometer_muxer = {
     .name           = "audiometer",
     .long_name      = NULL_IF_CONFIG_SMALL("Audio meter"),
     .priv_data_size = sizeof(AudioMeterContext),
-    .audio_codec    = AV_CODEC_ID_PCM_S16BE, AV_CODEC_ID_PCM_S16LE, // accept only PCM data
+    .audio_codec    = AV_NE(AV_CODEC_ID_PCM_S16BE, AV_CODEC_ID_PCM_S16LE), // accept only PCM data
     .video_codec    = AV_CODEC_ID_NONE,
     .write_header   = audiometer_write_header,
     .write_packet   = audiometer_write_packet,
