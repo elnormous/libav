@@ -30,6 +30,7 @@ static av_cold int audiometer_write_header(AVFormatContext *s1)
     AVStream *st;
     enum AVCodecID codec_id;
     struct addrinfo* info;
+    struct sockaddr_in address;
 
     s->fd = -1;
 
@@ -49,11 +50,21 @@ static av_cold int audiometer_write_header(AVFormatContext *s1)
         goto fail;
     }
 
-    struct sockaddr_in* addr = (struct sockaddr_in*)info->ai_addr;
+    s->fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
 
-    s->fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (s->fd == -1)
+    {
+        av_log(s1, AV_LOG_ERROR,
+               "failed to create socket\n");
+        goto fail;
+    }
 
-    if (connect(s->fd, (const struct sockaddr*)&addr, sizeof(addr)) < 0)
+    memset(&address, 0, sizeof(address));
+    address.sin_family = AF_INET;
+    address.sin_port = ((struct sockaddr_in*)info->ai_addr)->sin_port;
+    address.sin_addr.s_addr = ((struct sockaddr_in*)info->ai_addr)->sin_addr.s_addr;
+
+    if (connect(s->fd, (const struct sockaddr*)&address, sizeof(address)) < 0)
     {
         av_log(s1, AV_LOG_ERROR,
                "failed to connect to %s\n",
@@ -105,7 +116,12 @@ static int audiometer_write_packet(AVFormatContext *s1, AVPacket *pkt)
 
         if (size < 0)
         {
-            if (errno != EAGAIN) return AVERROR(EIO);
+            if (errno != EAGAIN)
+            {
+                av_log(s1, AV_LOG_ERROR,
+                    "failed to send data\n");
+                return AVERROR(EIO);
+            }
         }
 
         s->max_volume = 0;
