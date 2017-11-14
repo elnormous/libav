@@ -4,14 +4,20 @@
  *
  */
 
+#include "libavutil/bswap.h"
 #include "libavutil/internal.h"
+#include "libavutil/mathematics.h"
 #include "libavformat/avformat.h"
 
 
 typedef struct AudioMeterContext {
     AVClass *class;
-    int channels;
     AVCodecContext *avctx;
+    enum AVCodecID codec_id;
+    int channels;
+    AVRational time_base;
+    int16_t max_volume;
+    int64_t last_pts;
 } AudioMeterContext;
 
 static av_cold int audiometer_write_header(AVFormatContext *s1)
@@ -23,10 +29,14 @@ static av_cold int audiometer_write_header(AVFormatContext *s1)
     int res;
 
     st = s1->streams[0];
-    sample_rate = st->codecpar->sample_rate;
-    codec_id    = st->codecpar->codec_id;
+    //sample_rate = st->codecpar->sample_rate;
+    s->codec_id = codec_id = st->codecpar->codec_id;
+    s->channels = st->codecpar->channels;
+    s->time_base = st->time_base;
 
-    s1->filename;
+    // TODO connect socket
+    //s1->filename;
+    printf("ADDRESS: %s, channels: %d\n", s1->filename, s->channels);
 
     return res;
 
@@ -41,17 +51,35 @@ static int audiometer_write_packet(AVFormatContext *s1, AVPacket *pkt)
     int res;
     int size     = pkt->size;
     uint8_t *buf = pkt->data;
+    int swap = 0;
+    int64_t pts;
 
-    /*size /= s->frame_size;
-    if (s->reorder_func) {
-        if (size > s->reorder_buf_size)
-            //if (reorder(s, size))
-            // TODO: reorder
-                return AVERROR(ENOMEM);
-        s->reorder_func(buf, s->reorder_buf, size);
-        buf = s->reorder_buf;
-    }*/
-    printf("received\n");
+    switch (s->codec_id)
+    {
+        case AV_CODEC_ID_PCM_S16BE:
+            swap = !HAVE_BIGENDIAN;
+            break;
+        case AV_CODEC_ID_PCM_S16LE:
+            swap = HAVE_BIGENDIAN;
+            break;
+    }
+
+    for (int i = 0; i < size; i += sizeof(uint16_t) * s->channels)
+    {
+        int16_t sample = *(int16_t*)(buf + i);
+        if (swap) sample = (int16_t)av_bswap16((uint16_t)sample);
+
+        if (sample > s->max_volume) s->max_volume = sample;
+    }
+
+    pts = av_rescale_q(pkt->pts, s->time_base, AV_TIME_BASE_Q);
+
+    if (pts - s->last_pts > AV_TIME_BASE / 25) // 25 FPS
+    {
+        printf("Volume: %d\n", s->max_volume);
+        s->max_volume = 0;
+        s->last_pts = pts;
+    }
 
     return 0;
 }
