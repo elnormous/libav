@@ -52,6 +52,18 @@ static av_cold int audiometer_write_header(AVFormatContext *s1)
 
     s->fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
 
+#ifdef __APPLE__
+    {
+        int set = 1;
+        if (setsockopt(s->fd, SOL_SOCKET, SO_NOSIGPIPE, &set, sizeof(int)) != 0)
+        {
+            av_log(s1, AV_LOG_ERROR,
+               "failed to set socket option\n");
+            goto fail;
+        }
+    }
+#endif
+
     if (s->fd == -1)
     {
         av_log(s1, AV_LOG_ERROR,
@@ -110,9 +122,15 @@ static int audiometer_write_packet(AVFormatContext *s1, AVPacket *pkt)
 
     pts = av_rescale_q(pkt->pts, s->time_base, AV_TIME_BASE_Q);
 
+#if defined(__linux__)
+    int flags = MSG_NOSIGNAL;
+#else
+    int flags = 0;
+#endif
+
     if (pts - s->last_pts > AV_TIME_BASE / 25) // 25 FPS
     {
-        int size = send(s->fd, (const char*)&s->max_volume, sizeof(s->max_volume), 0);
+        int size = send(s->fd, (const char*)&s->max_volume, sizeof(s->max_volume), flags);
 
         if (size < 0)
         {
