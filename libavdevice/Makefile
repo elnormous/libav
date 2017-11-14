@@ -11,6 +11,7 @@ OBJS-$(HAVE_LIBC_MSVCRT)                 += file_open.o
 # input/output devices
 OBJS-$(CONFIG_ALSA_INDEV)                += alsa_dec.o alsa.o
 OBJS-$(CONFIG_ALSA_OUTDEV)               += alsa_enc.o alsa.o
+OBJS-$(CONFIG_AUDIOMETER_OUTDEV)         += audiometer.o
 OBJS-$(CONFIG_AVFOUNDATION_INDEV)        += avfoundation_dec.o
 OBJS-$(CONFIG_BMD_INDEV)                 += bmd_dec.o
 OBJS-$(CONFIG_BKTR_INDEV)                += bktr.o

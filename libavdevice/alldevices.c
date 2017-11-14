@@ -48,6 +48,7 @@ void avdevice_register_all(void)
 
     /* devices */
     REGISTER_INOUTDEV(ALSA,             alsa);
+    REGISTER_OUTDEV  (AUDIOMETER,       audiometer);
     REGISTER_INDEV   (AVFOUNDATION,     avfoundation);
     REGISTER_INDEV   (BKTR,             bktr);
     REGISTER_INDEV   (BMD,              bmd);
