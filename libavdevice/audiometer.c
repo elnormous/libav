@@ -4,6 +4,9 @@
  *
  */
 
+#include <sys/socket.h>
+#include <netdb.h>
+#include <unistd.h>
 #include "libavutil/bswap.h"
 #include "libavutil/internal.h"
 #include "libavutil/mathematics.h"
@@ -12,6 +15,7 @@
 
 typedef struct AudioMeterContext {
     AVClass *class;
+    int fd;
     AVCodecContext *avctx;
     enum AVCodecID codec_id;
     int channels;
@@ -24,31 +28,52 @@ static av_cold int audiometer_write_header(AVFormatContext *s1)
 {
     AudioMeterContext *s = s1->priv_data;
     AVStream *st;
-    unsigned int sample_rate;
     enum AVCodecID codec_id;
-    int res;
+    struct addrinfo* info;
+
+    s->fd = -1;
 
     st = s1->streams[0];
-    //sample_rate = st->codecpar->sample_rate;
     s->codec_id = codec_id = st->codecpar->codec_id;
     s->channels = st->codecpar->channels;
     s->time_base = st->time_base;
 
-    // TODO connect socket
-    //s1->filename;
-    printf("ADDRESS: %s, channels: %d\n", s1->filename, s->channels);
+    // connect to server
+    int ret = getaddrinfo(s1->filename, "5672", NULL, &info);
 
-    return res;
+    if (ret != 0)
+    {
+        av_log(s1, AV_LOG_ERROR,
+               "failed to resolve the address %s\n",
+               s1->filename);
+        goto fail;
+    }
+
+    struct sockaddr_in* addr = (struct sockaddr_in*)info->ai_addr;
+
+    s->fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+    if (connect(s->fd, (const struct sockaddr*)&addr, sizeof(addr)) < 0)
+    {
+        av_log(s1, AV_LOG_ERROR,
+               "failed to connect to %s\n",
+               s1->filename);
+        goto fail;
+    }
+
+    freeaddrinfo(info);
+
+    return 0;
 
 fail:
-    // TODO: close connection
+    if (info) freeaddrinfo(info);
+    if (s->fd != -1) close(s->fd);
     return AVERROR(EIO);
 }
 
 static int audiometer_write_packet(AVFormatContext *s1, AVPacket *pkt)
 {
     AudioMeterContext *s = s1->priv_data;
-    int res;
     int size     = pkt->size;
     uint8_t *buf = pkt->data;
     int swap = 0;
@@ -76,7 +101,13 @@ static int audiometer_write_packet(AVFormatContext *s1, AVPacket *pkt)
 
     if (pts - s->last_pts > AV_TIME_BASE / 25) // 25 FPS
     {
-        printf("Volume: %d\n", s->max_volume);
+        int size = send(s->fd, (const char*)&s->max_volume, sizeof(s->max_volume), 0);
+
+        if (size < 0)
+        {
+            if (errno != EAGAIN) return AVERROR(EIO);
+        }
+
         s->max_volume = 0;
         s->last_pts = pts;
     }
@@ -84,9 +115,12 @@ static int audiometer_write_packet(AVFormatContext *s1, AVPacket *pkt)
     return 0;
 }
 
-static int audiometer_close()
+static int audiometer_close(struct AVFormatContext *s1)
 {
-    // TODO: close connection
+    AudioMeterContext *s = s1->priv_data;
+
+    if (s->fd != -1) close(s->fd);
+
     return 0;
 }
 
