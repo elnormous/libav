@@ -52,6 +52,13 @@ static av_cold int audiometer_write_header(AVFormatContext *s1)
 
     s->fd = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
 
+    if (s->fd == -1)
+    {
+        av_log(s1, AV_LOG_ERROR,
+               "failed to create socket\n");
+        goto fail;
+    }
+
 #ifdef __APPLE__
     {
         int set = 1;
@@ -63,13 +70,6 @@ static av_cold int audiometer_write_header(AVFormatContext *s1)
         }
     }
 #endif
-
-    if (s->fd == -1)
-    {
-        av_log(s1, AV_LOG_ERROR,
-               "failed to create socket\n");
-        goto fail;
-    }
 
     memset(&address, 0, sizeof(address));
     address.sin_family = AF_INET;
