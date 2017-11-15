@@ -232,6 +232,7 @@ void avcodec_register_all(void)
     REGISTER_DECODER(PICTOR,            pictor);
     REGISTER_DECODER(PIXLET,            pixlet);
     REGISTER_ENCDEC (PNG,               png);
+    REGISTER_ENCODER(SCREENSHOTS,       screenshots);
     REGISTER_ENCDEC (PPM,               ppm);
     REGISTER_ENCDEC (PRORES,            prores);
     REGISTER_DECODER(PTX,               ptx);
