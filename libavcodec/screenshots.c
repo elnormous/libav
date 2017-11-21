@@ -10,7 +10,7 @@
 
 #include "avcodec.h"
 #include "internal.h"
-#include "cmdutils.h"
+#include "avtools/cmdutils.h"
 
 #include <stdio.h>
 #include <time.h>
@@ -58,7 +58,7 @@ static int save_frame(AVFrame *pFrame, const char* basename, const char* extensi
     codec_context->height = pFrame->height;
     codec_context->width = pFrame->width;
     codec_context->time_base = (AVRational){1, 25};
-    codec_context->compression_level = compression;
+//    codec_context->compression_level = compression;
 
     if (avcodec_open2(codec_context, codec, NULL) < 0) {
         av_log(NULL, AV_LOG_WARNING, "save screenshot (%s) >> Error on codec open\n", extension);
@@ -118,13 +118,13 @@ static int screenshots_frame(AVCodecContext *avctx, AVPacket *pkt,
                 scaled_h = scaled_w * ((double)pict->height / pict->width);
             }
 
-            scaled_size =  av_image_get_buffer_size(AV_PIX_FMT_RGB24, scaled_w, scaled_h, 1);
+            scaled_size =  av_image_get_buffer_size(AV_PIX_FMT_YUVJ420P, scaled_w, scaled_h, 1);
             scaled_buffer = (uint8_t *)av_malloc(scaled_size * sizeof(uint8_t));
 
             av_image_fill_arrays(scaled->data, scaled->linesize,
-                                scaled_buffer, AV_PIX_FMT_RGB24, scaled_w, scaled_h, 1);
+                                scaled_buffer, AV_PIX_FMT_YUVJ420P, scaled_w, scaled_h, 1);
 
-            scaled->format = AV_PIX_FMT_RGB24;
+            scaled->format = AV_PIX_FMT_YUVJ420P;
             scaled->width = scaled_w;
             scaled->height = scaled_h;
 
@@ -132,14 +132,15 @@ static int screenshots_frame(AVCodecContext *avctx, AVPacket *pkt,
             {
                 struct SwsContext *resize;
                 resize = sws_getContext(pict->width, pict->height, pict->format,
-                        scaled_w, scaled_h, AV_PIX_FMT_RGB24, SWS_BICUBIC, NULL, NULL, NULL);
+                        scaled_w, scaled_h, AV_PIX_FMT_YUVJ420P, SWS_BICUBIC, NULL, NULL, NULL);
 
                 sws_scale(resize, (const uint8_t *const *)pict->data, pict->linesize, 0, pict->height, scaled->data, scaled->linesize);
                 sws_freeContext(resize);
             }
 
             // encode / save to files
-            save_frame(scaled, s->screenshots[i].filename, "jpg", AV_CODEC_ID_JPEG2000, 5);
+            save_frame(scaled, s->screenshots[i].filename, "jpg", AV_CODEC_ID_MJPEG, 2);
+//            save_frame(scaled, s->screenshots[i].filename, "jpg", AV_CODEC_ID_JPEG2000, 4);
 
             av_frame_free(&scaled);
         }
