@@ -16,6 +16,7 @@
 #include <time.h>
 #include <string.h>
 
+char * strsep(char **stringp, const char *delim);
 char * strsep(char **stringp, const char *delim) {
     char *s;
     const char *spanp;
