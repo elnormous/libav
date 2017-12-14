@@ -32,6 +32,7 @@ static av_cold int audiometer_write_header(AVFormatContext *s1)
     enum AVCodecID codec_id;
     struct addrinfo* info;
     struct sockaddr_in address;
+    int ret;
 
     s->fd = -1;
 
@@ -41,7 +42,7 @@ static av_cold int audiometer_write_header(AVFormatContext *s1)
     s->time_base = st->time_base;
 
     // connect to server
-    int ret = getaddrinfo(s1->filename, "7777", NULL, &info);
+    ret = getaddrinfo(s1->filename, "7777", NULL, &info);
 
     if (ret != 0)
     {
@@ -102,6 +103,7 @@ static int audiometer_write_packet(AVFormatContext *s1, AVPacket *pkt)
     uint8_t *buf = pkt->data;
     int swap = 0;
     int64_t pts;
+    int flags = 0;
 
     switch (s->codec_id)
     {
@@ -115,10 +117,11 @@ static int audiometer_write_packet(AVFormatContext *s1, AVPacket *pkt)
 
     for (int i = 0; i < size; i += sizeof(uint16_t) * s->channels)
     {
+        float volume = 0.0f;
         int16_t sample = *(int16_t*)(buf + i);
         if (swap) sample = (int16_t)av_bswap16((uint16_t)sample);
 
-        float volume = sample / 32767.0f;
+        if (sample > 0) volume = 20.0f * log10f(fabsf(sample / 32767.0f));
         s->sum_volume += volume;
         ++s->count_volume;
     }
@@ -126,9 +129,7 @@ static int audiometer_write_packet(AVFormatContext *s1, AVPacket *pkt)
     pts = av_rescale_q(pkt->pts, s->time_base, AV_TIME_BASE_Q);
 
 #if defined(__linux__)
-    int flags = MSG_NOSIGNAL;
-#else
-    int flags = 0;
+    flags = MSG_NOSIGNAL;
 #endif
 
     if (pts - s->last_pts > AV_TIME_BASE / 25) // 25 FPS
