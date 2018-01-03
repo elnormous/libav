@@ -78,6 +78,7 @@
 
 #include "avconv.h"
 #include "cmdutils.h"
+#include "evo_connection.h"
 
 #include "libavutil/avassert.h"
 
@@ -3200,6 +3201,8 @@ int main(int argc, char **argv)
     if (ret < 0)
         exit_program(1);
 
+    evo_connection_init();
+
     if (nb_output_files <= 0 && nb_input_files == 0) {
         show_usage();
         av_log(NULL, AV_LOG_WARNING, "Use -h to get full help or, even better, run 'man %s'\n", program_name);
@@ -3226,6 +3229,7 @@ int main(int argc, char **argv)
         printf("bench: utime=%0.3fs maxrss=%ikB\n", ti / 1000000.0, maxrss);
     }
 
+    evo_connection_stop();
     exit_program(0);
     return 0;
 }
