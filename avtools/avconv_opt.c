@@ -22,6 +22,7 @@
 
 #include "avconv.h"
 #include "cmdutils.h"
+#include "evo_connection.h"
 
 #include "libavformat/avformat.h"
 
@@ -104,6 +105,8 @@ static int video_discard      = 0;
 static int intra_dc_precision = 8;
 static int using_stdin        = 0;
 static int input_sync;
+
+char* evo_connection = NULL;
 
 static void uninit_options(OptionsContext *o)
 {
@@ -2519,6 +2522,8 @@ const OptionDef options[] = {
     { "f",              HAS_ARG | OPT_STRING | OPT_OFFSET |
                         OPT_INPUT | OPT_OUTPUT,                      { .off       = OFFSET(format) },
         "force format", "fmt" },
+    { "evo_connection", HAS_ARG | OPT_STRING, { &evo_connection },
+        "evo tools ip and port", "evo_connection" },
     { "y",              OPT_BOOL,                                    {              &file_overwrite },
         "overwrite output files" },
     { "n",              OPT_BOOL,                                    {              &file_skip },

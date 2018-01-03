@@ -10,9 +10,9 @@
 
 #include "avcodec.h"
 #include "internal.h"
-#include "avtools/cmdutils.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <time.h>
 #include <string.h>
 
@@ -194,7 +194,7 @@ static av_cold int screenshots_init(AVCodecContext *avctx)
 
     if (s->qualities == NULL) {
         av_log(NULL, AV_LOG_ERROR, "Qualities not passed for screenshots\n");
-        exit_program(1);
+        exit(1);
     }
 
     // count files
