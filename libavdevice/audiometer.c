@@ -20,8 +20,8 @@ typedef struct AudioMeterContext {
     enum AVCodecID codec_id;
     int channels;
     AVRational time_base;
-    float sum_volume;
-    uint32_t count_volume;
+    double sum_samples;
+    uint32_t count_samples;
     int64_t last_pts;
 } AudioMeterContext;
 
@@ -115,15 +115,14 @@ static int audiometer_write_packet(AVFormatContext *s1, AVPacket *pkt)
             break;
     }
 
-    for (int i = 0; i < size; i += sizeof(uint16_t) * s->channels)
+    for (int i = 0; i < size; i += sizeof(int16_t) * s->channels)
     {
-        float volume = 0.0f;
         int16_t sample = *(int16_t*)(buf + i);
+        double normalized;
         if (swap) sample = (int16_t)av_bswap16((uint16_t)sample);
-
-        if (sample > 0) volume = 20.0f * log10f(fabsf(sample / 32767.0f));
-        s->sum_volume += volume;
-        ++s->count_volume;
+        normalized = sample / 32768.0;
+        s->sum_samples += normalized * normalized;
+        ++s->count_samples;
     }
 
     pts = av_rescale_q(pkt->pts, s->time_base, AV_TIME_BASE_Q);
@@ -134,8 +133,13 @@ static int audiometer_write_packet(AVFormatContext *s1, AVPacket *pkt)
 
     if (pts - s->last_pts > AV_TIME_BASE / 25) // 25 FPS
     {
-        float volume = s->sum_volume / s->count_volume;
-        int size = send(s->fd, (const char*)&volume, sizeof(volume), flags);
+        double rms = sqrt(s->sum_samples / s->count_samples); // root mean square
+        float dB;
+        int size;
+
+        dB = 3.0 + 12.0 * log10(rms);
+        
+        size = send(s->fd, (const char*)&dB, sizeof(dB), flags);
 
         if (size < 0)
         {
@@ -147,8 +151,8 @@ static int audiometer_write_packet(AVFormatContext *s1, AVPacket *pkt)
             }
         }
 
-        s->sum_volume = 0;
-        s->count_volume = 0;
+        s->sum_samples = 0;
+        s->count_samples = 0;
         s->last_pts = pts;
     }
 
