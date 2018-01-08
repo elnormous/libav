@@ -41,6 +41,13 @@ static av_cold int audiometer_write_header(AVFormatContext *s1)
     s->channels = st->codecpar->channels;
     s->time_base = st->time_base;
 
+    if (s->codec_id != AV_CODEC_ID_PCM_S16BE &&
+        s->codec_id != AV_CODEC_ID_PCM_S16LE)
+    {
+        av_log(s1, AV_LOG_ERROR,
+           "unsupported codec %x\n", s->codec_id);
+    }
+
     // connect to server
     ret = getaddrinfo(s1->filename, "7777", NULL, &info);
 
