@@ -21,6 +21,7 @@ typedef struct AudioMeterContext {
     int channels;
     AVRational time_base;
     double sum_samples;
+    double max_sample;
     uint32_t count_samples;
     int64_t last_pts;
 } AudioMeterContext;
@@ -129,6 +130,7 @@ static int audiometer_write_packet(AVFormatContext *s1, AVPacket *pkt)
         if (swap) sample = (int16_t)av_bswap16((uint16_t)sample);
         normalized = sample / 32768.0;
         s->sum_samples += normalized * normalized;
+        if (normalized > s->max_sample) s->max_sample = normalized;
         ++s->count_samples;
     }
 
@@ -144,7 +146,8 @@ static int audiometer_write_packet(AVFormatContext *s1, AVPacket *pkt)
         float dB;
         int size;
 
-        dB = 3.0 + 12.0 * log10(rms);
+        dB = 1.5 + 0.5 * log10(rms);
+        //dB = 2.0 + log10(s->max_sample);
         
         size = send(s->fd, (const char*)&dB, sizeof(dB), flags);
 
@@ -159,6 +162,7 @@ static int audiometer_write_packet(AVFormatContext *s1, AVPacket *pkt)
         }
 
         s->sum_samples = 0;
+        s->max_sample = 0;
         s->count_samples = 0;
         s->last_pts = pts;
     }
