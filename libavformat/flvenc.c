@@ -573,30 +573,27 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
 
             stream_start = av_stream_get_side_data(s->streams[pkt->stream_index], AV_PKT_DATA_STREAM_START_TIME, NULL);
 
-            if (!stream_start)
+            if (stream_start)
             {
-                av_log(NULL, AV_LOG_ERROR, "Missing stream start time\n");
-                exit(1);
-            }    
+                timestamp = *stream_start / 1000;
             
-            timestamp = *stream_start / 1000;
-            
-            stream_hash = get_stream_hash(s->filename) % 18;
+                stream_hash = get_stream_hash(s->filename) % 18;
 
-            prev_wrap_timestamp = first_timewrap + ((timestamp - first_timewrap - stream_hash * 10 * 60) / three_weeks * three_weeks) + stream_hash * 10 * 60;
-            next_wrap_timestamp = prev_wrap_timestamp + three_weeks;
+                prev_wrap_timestamp = first_timewrap + ((timestamp - first_timewrap - stream_hash * 10 * 60) / three_weeks * three_weeks) + stream_hash * 10 * 60;
+                next_wrap_timestamp = prev_wrap_timestamp + three_weeks;
 
-            timeinfo = localtime(&timestamp);
-            av_log(s, AV_LOG_INFO, "Current timestamp: %zu, %s", timestamp, asctime(timeinfo));
+                timeinfo = localtime(&timestamp);
+                av_log(s, AV_LOG_INFO, "Current timestamp: %zu, %s", timestamp, asctime(timeinfo));
 
-            timeinfo = localtime(&prev_wrap_timestamp);
-            av_log(s, AV_LOG_INFO, "Previous stop on: %zu, %s", prev_wrap_timestamp, asctime(timeinfo));
+                timeinfo = localtime(&prev_wrap_timestamp);
+                av_log(s, AV_LOG_INFO, "Previous stop on: %zu, %s", prev_wrap_timestamp, asctime(timeinfo));
 
-            timeinfo = localtime(&next_wrap_timestamp);
-            av_log(s, AV_LOG_INFO, "Next stop on: %zu, %s", next_wrap_timestamp, asctime(timeinfo));
+                timeinfo = localtime(&next_wrap_timestamp);
+                av_log(s, AV_LOG_INFO, "Next stop on: %zu, %s", next_wrap_timestamp, asctime(timeinfo));
 
-            flv->delay = (*stream_start - (int64_t)prev_wrap_timestamp * 1000) % 0x7FFFFFFF;
-            flv->stop_time = next_wrap_timestamp;
+                flv->delay = (*stream_start - (int64_t)prev_wrap_timestamp * 1000) % 0x7FFFFFFF;
+                flv->stop_time = next_wrap_timestamp;
+            }
         }
         else
         {
