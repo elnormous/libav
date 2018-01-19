@@ -285,10 +285,10 @@ static void write_metadata(AVFormatContext *s, unsigned int ts)
     }
 
     for (i = 0; i < s->nb_streams; i++) {
-        AVCodecContext *enc = s->streams[i]->codec;
-        if (enc->codec_type == AVMEDIA_TYPE_VIDEO) {
+        AVCodecParameters *par = s->streams[i]->codecpar;
+        if (par->codec_type == AVMEDIA_TYPE_VIDEO) {
             put_amf_string(pb, "gopsize");
-            put_amf_double(pb, enc->gop_size);
+            put_amf_double(pb, par->gop_size);
             metadata_count++;
         }
     }
@@ -569,31 +569,39 @@ static int flv_write_packet(AVFormatContext *s, AVPacket *pkt)
             time_t prev_wrap_timestamp;
             time_t next_wrap_timestamp;
             struct tm* timeinfo;
-            int64_t *stream_start, timestamp;
+            int64_t *side_data, stream_start, timestamp;
+            struct timeval tv;
 
-            stream_start = av_stream_get_side_data(s->streams[pkt->stream_index], AV_PKT_DATA_STREAM_START_TIME, NULL);
+            side_data = (int64_t*)av_stream_get_side_data(s->streams[pkt->stream_index], AV_PKT_DATA_STREAM_START_TIME, NULL);
 
-            if (stream_start)
+            if (side_data)
             {
-                timestamp = *stream_start / 1000;
-            
-                stream_hash = get_stream_hash(s->filename) % 18;
-
-                prev_wrap_timestamp = first_timewrap + ((timestamp - first_timewrap - stream_hash * 10 * 60) / three_weeks * three_weeks) + stream_hash * 10 * 60;
-                next_wrap_timestamp = prev_wrap_timestamp + three_weeks;
-
-                timeinfo = localtime(&timestamp);
-                av_log(s, AV_LOG_INFO, "Current timestamp: %zu, %s", timestamp, asctime(timeinfo));
-
-                timeinfo = localtime(&prev_wrap_timestamp);
-                av_log(s, AV_LOG_INFO, "Previous stop on: %zu, %s", prev_wrap_timestamp, asctime(timeinfo));
-
-                timeinfo = localtime(&next_wrap_timestamp);
-                av_log(s, AV_LOG_INFO, "Next stop on: %zu, %s", next_wrap_timestamp, asctime(timeinfo));
-
-                flv->delay = (*stream_start - (int64_t)prev_wrap_timestamp * 1000) % 0x7FFFFFFF;
-                flv->stop_time = next_wrap_timestamp;
+                stream_start = *side_data;
             }
+            else
+            {
+                gettimeofday(&tv, NULL);
+                stream_start = 1000 * tv.tv_sec + tv.tv_usec / 1000;
+            }
+
+            timestamp = stream_start / 1000;
+
+            stream_hash = get_stream_hash(s->filename) % 18;
+
+            prev_wrap_timestamp = first_timewrap + ((timestamp - first_timewrap - stream_hash * 10 * 60) / three_weeks * three_weeks) + stream_hash * 10 * 60;
+            next_wrap_timestamp = prev_wrap_timestamp + three_weeks;
+
+            timeinfo = localtime((time_t*)&timestamp);
+            av_log(s, AV_LOG_INFO, "Current timestamp: %zu, %s", (time_t)timestamp, asctime(timeinfo));
+
+            timeinfo = localtime(&prev_wrap_timestamp);
+            av_log(s, AV_LOG_INFO, "Previous stop on: %zu, %s", prev_wrap_timestamp, asctime(timeinfo));
+
+            timeinfo = localtime(&next_wrap_timestamp);
+            av_log(s, AV_LOG_INFO, "Next stop on: %zu, %s", next_wrap_timestamp, asctime(timeinfo));
+
+            flv->delay = (stream_start - (int64_t)prev_wrap_timestamp * 1000) % 0x7FFFFFFF;
+            flv->stop_time = next_wrap_timestamp;
         }
         else
         {

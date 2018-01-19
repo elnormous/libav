@@ -90,6 +90,22 @@ avconv -i frame_%d.jpg -c:v copy rotated.avi
 
 @section noise
 
+@section null
+This bitstream filter passes the packets through unchanged.
+
 @section remove_extradata
+
+@section vp9_superframe
+
+Combine VP9 frames into superframes.
+
+@section vp9_superframe_split
+
+Split VP9 superframes into single frames.
+
+@section vp9_raw_reorder
+
+Given a VP9 stream with correct timestamps but possibly out of order,
+insert additional show-existing-frame packets to correct the ordering.
 
 @c man end BITSTREAM FILTERS

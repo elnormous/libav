@@ -55,7 +55,7 @@ static av_cold int decode_init(AVCodecContext *avctx)
         return AVERROR(ENOMEM);
 
     avctx->pix_fmt = AV_PIX_FMT_PAL8;
-    ff_blockdsp_init(&s->bdsp, avctx);
+    ff_blockdsp_init(&s->bdsp);
     return 0;
 }
 
@@ -164,7 +164,7 @@ static int decode_frame(AVCodecContext *avctx, void *data, int *got_frame,
 
         if (video_type == 0 || video_type == 1) {
             BitstreamContext bc;
-            bitstream_init(&bc, buf, 8 * FFMIN(video_size, buf_end - buf));
+            bitstream_init8(&bc, buf, FFMIN(video_size, buf_end - buf));
 
             for (j = 0; j < avctx->height; j += 8)
                 for (i = 0; i < avctx->width; i += 8)

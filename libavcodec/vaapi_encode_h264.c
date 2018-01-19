@@ -146,6 +146,7 @@ typedef struct VAAPIEncodeH264Context {
     int fixed_qp_b;
 
     int next_frame_num;
+    int64_t last_idr_frame;
     int64_t idr_pic_count;
 
     int cpb_delay;
@@ -799,6 +800,8 @@ static int vaapi_encode_h264_init_sequence_params(AVCodecContext *avctx)
         vseq->seq_fields.bits.direct_8x8_inference_flag = 1;
         vseq->seq_fields.bits.log2_max_frame_num_minus4 = 4;
         vseq->seq_fields.bits.pic_order_cnt_type = 0;
+        vseq->seq_fields.bits.log2_max_pic_order_cnt_lsb_minus4 =
+            av_clip(av_log2(avctx->max_b_frames + 1) - 2, 0, 12);
 
         if (avctx->width  != ctx->surface_width ||
             avctx->height != ctx->surface_height) {
@@ -960,6 +963,7 @@ static int vaapi_encode_h264_init_picture_params(AVCodecContext *avctx,
         vpic->frame_num = 0;
         priv->next_frame_num = 1;
         priv->cpb_delay = 0;
+        priv->last_idr_frame = pic->display_order;
     } else {
         vpic->frame_num = priv->next_frame_num;
         if (pic->type != PICTURE_TYPE_B) {
@@ -976,8 +980,8 @@ static int vaapi_encode_h264_init_picture_params(AVCodecContext *avctx,
     vpic->CurrPic.picture_id          = pic->recon_surface;
     vpic->CurrPic.frame_idx           = vpic->frame_num;
     vpic->CurrPic.flags               = 0;
-    vpic->CurrPic.TopFieldOrderCnt    = pic->display_order;
-    vpic->CurrPic.BottomFieldOrderCnt = pic->display_order;
+    vpic->CurrPic.TopFieldOrderCnt    = pic->display_order - priv->last_idr_frame;
+    vpic->CurrPic.BottomFieldOrderCnt = pic->display_order - priv->last_idr_frame;
 
     for (i = 0; i < pic->nb_refs; i++) {
         VAAPIEncodePicture *ref = pic->refs[i];
@@ -985,8 +989,8 @@ static int vaapi_encode_h264_init_picture_params(AVCodecContext *avctx,
         vpic->ReferenceFrames[i].picture_id = ref->recon_surface;
         vpic->ReferenceFrames[i].frame_idx  = ref->encode_order;
         vpic->ReferenceFrames[i].flags = VA_PICTURE_H264_SHORT_TERM_REFERENCE;
-        vpic->ReferenceFrames[i].TopFieldOrderCnt    = ref->display_order;
-        vpic->ReferenceFrames[i].BottomFieldOrderCnt = ref->display_order;
+        vpic->ReferenceFrames[i].TopFieldOrderCnt    = ref->display_order - priv->last_idr_frame;
+        vpic->ReferenceFrames[i].BottomFieldOrderCnt = ref->display_order - priv->last_idr_frame;
     }
     for (; i < FF_ARRAY_ELEMS(vpic->ReferenceFrames); i++) {
         vpic->ReferenceFrames[i].picture_id = VA_INVALID_ID;
@@ -1057,7 +1061,7 @@ static int vaapi_encode_h264_init_slice_params(AVCodecContext *avctx,
     vslice->pic_parameter_set_id = vpic->pic_parameter_set_id;
     vslice->idr_pic_id = priv->idr_pic_count++;
 
-    vslice->pic_order_cnt_lsb = pic->display_order &
+    vslice->pic_order_cnt_lsb = (pic->display_order - priv->last_idr_frame) &
         ((1 << (4 + vseq->seq_fields.bits.log2_max_pic_order_cnt_lsb_minus4)) - 1);
 
     for (i = 0; i < FF_ARRAY_ELEMS(vslice->RefPicList0); i++) {
@@ -1122,13 +1126,15 @@ static av_cold int vaapi_encode_h264_configure(AVCodecContext *avctx)
                "%d / %d / %d for IDR- / P- / B-frames.\n",
                priv->fixed_qp_idr, priv->fixed_qp_p, priv->fixed_qp_b);
 
-    } else if (ctx->va_rc_mode == VA_RC_CBR) {
+    } else if (ctx->va_rc_mode == VA_RC_CBR ||
+               ctx->va_rc_mode == VA_RC_VBR) {
         // These still need to be  set for pic_init_qp/slice_qp_delta.
         priv->fixed_qp_idr = 26;
         priv->fixed_qp_p   = 26;
         priv->fixed_qp_b   = 26;
 
-        av_log(avctx, AV_LOG_DEBUG, "Using constant-bitrate = %d bps.\n",
+        av_log(avctx, AV_LOG_DEBUG, "Using %s-bitrate = %d bps.\n",
+               ctx->va_rc_mode == VA_RC_CBR ? "constant" : "variable",
                avctx->bit_rate);
 
     } else {
@@ -1237,9 +1243,12 @@ static av_cold int vaapi_encode_h264_init(AVCodecContext *avctx)
     // Only 8-bit encode is supported.
     ctx->va_rt_format = VA_RT_FORMAT_YUV420;
 
-    if (avctx->bit_rate > 0)
-        ctx->va_rc_mode = VA_RC_CBR;
-    else
+    if (avctx->bit_rate > 0) {
+        if (avctx->rc_max_rate == avctx->bit_rate)
+            ctx->va_rc_mode = VA_RC_CBR;
+        else
+            ctx->va_rc_mode = VA_RC_VBR;
+    } else
         ctx->va_rc_mode = VA_RC_CQP;
 
     ctx->va_packed_headers =
@@ -1277,6 +1286,7 @@ static const AVCodecDefault vaapi_encode_h264_defaults[] = {
     { "i_qoffset",      "0.0" },
     { "b_qfactor",      "1.2" },
     { "b_qoffset",      "0.0" },
+    { "qmin",           "0"   },
     { NULL },
 };
 

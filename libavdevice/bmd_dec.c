@@ -307,7 +307,7 @@ static int put_wallclock_packet(BMDCaptureContext *ctx, int64_t pts)
     int size;
     int ret;
 
-    size = snprintf(buf, sizeof(buf), "%" PRId64, av_gettime());
+    size = snprintf(buf, sizeof(buf), "%" PRId64, av_gettime()) + 1;
 
     ret = av_new_packet(&pkt, size);
 

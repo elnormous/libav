@@ -84,7 +84,7 @@ typedef struct VAAPIMapping {
     }
 // The map fourcc <-> pix_fmt isn't bijective because of the annoying U/V
 // plane swap cases.  The frame handling below tries to hide these.
-static struct {
+static const struct {
     unsigned int fourcc;
     unsigned int rt_format;
     enum AVPixelFormat pix_fmt;
@@ -153,7 +153,8 @@ static int vaapi_frames_get_constraints(AVHWDeviceContext *hwdev,
     unsigned int fourcc;
     int err, i, j, attr_count, pix_fmt_count;
 
-    if (config) {
+    if (config &&
+        !(hwctx->driver_quirks & AV_VAAPI_DRIVER_QUIRK_SURFACE_ATTRIBUTES)) {
         attr_count = 0;
         vas = vaQuerySurfaceAttributes(hwctx->display, config->config_id,
                                        0, &attr_count);
@@ -270,6 +271,11 @@ static const struct {
         "Intel iHD",
         "ubit",
         AV_VAAPI_DRIVER_QUIRK_ATTRIB_MEMTYPE,
+    },
+    {
+        "VDPAU wrapper",
+        "Splitted-Desktop Systems VDPAU backend for VA-API",
+        AV_VAAPI_DRIVER_QUIRK_SURFACE_ATTRIBUTES,
     },
 };
 
@@ -388,6 +394,10 @@ static AVBufferRef *vaapi_pool_alloc(void *opaque, int size)
     VAStatus vas;
     AVBufferRef *ref;
 
+    if (hwfc->initial_pool_size > 0 &&
+        avfc->nb_surfaces >= hwfc->initial_pool_size)
+        return NULL;
+
     vas = vaCreateSurfaces(hwctx->display, ctx->rt_format,
                            hwfc->width, hwfc->height,
                            &surface_id, 1,
@@ -445,43 +455,48 @@ static int vaapi_frames_init(AVHWFramesContext *hwfc)
     }
 
     if (!hwfc->pool) {
-        int need_memory_type = !(hwctx->driver_quirks & AV_VAAPI_DRIVER_QUIRK_ATTRIB_MEMTYPE);
-        int need_pixel_format = 1;
-        for (i = 0; i < avfc->nb_attributes; i++) {
-            if (ctx->attributes[i].type == VASurfaceAttribMemoryType)
-                need_memory_type  = 0;
-            if (ctx->attributes[i].type == VASurfaceAttribPixelFormat)
-                need_pixel_format = 0;
-        }
-        ctx->nb_attributes =
-            avfc->nb_attributes + need_memory_type + need_pixel_format;
+        if (!(hwctx->driver_quirks & AV_VAAPI_DRIVER_QUIRK_SURFACE_ATTRIBUTES)) {
+            int need_memory_type = !(hwctx->driver_quirks & AV_VAAPI_DRIVER_QUIRK_ATTRIB_MEMTYPE);
+            int need_pixel_format = 1;
+            for (i = 0; i < avfc->nb_attributes; i++) {
+                if (ctx->attributes[i].type == VASurfaceAttribMemoryType)
+                    need_memory_type  = 0;
+                if (ctx->attributes[i].type == VASurfaceAttribPixelFormat)
+                    need_pixel_format = 0;
+            }
+            ctx->nb_attributes =
+                avfc->nb_attributes + need_memory_type + need_pixel_format;
 
-        ctx->attributes = av_malloc(ctx->nb_attributes *
+            ctx->attributes = av_malloc(ctx->nb_attributes *
                                         sizeof(*ctx->attributes));
-        if (!ctx->attributes) {
-            err = AVERROR(ENOMEM);
-            goto fail;
-        }
+            if (!ctx->attributes) {
+                err = AVERROR(ENOMEM);
+                goto fail;
+            }
 
-        for (i = 0; i < avfc->nb_attributes; i++)
-            ctx->attributes[i] = avfc->attributes[i];
-        if (need_memory_type) {
-            ctx->attributes[i++] = (VASurfaceAttrib) {
-                .type          = VASurfaceAttribMemoryType,
-                .flags         = VA_SURFACE_ATTRIB_SETTABLE,
-                .value.type    = VAGenericValueTypeInteger,
-                .value.value.i = VA_SURFACE_ATTRIB_MEM_TYPE_VA,
-            };
+            for (i = 0; i < avfc->nb_attributes; i++)
+                ctx->attributes[i] = avfc->attributes[i];
+            if (need_memory_type) {
+                ctx->attributes[i++] = (VASurfaceAttrib) {
+                    .type          = VASurfaceAttribMemoryType,
+                    .flags         = VA_SURFACE_ATTRIB_SETTABLE,
+                    .value.type    = VAGenericValueTypeInteger,
+                    .value.value.i = VA_SURFACE_ATTRIB_MEM_TYPE_VA,
+                };
+            }
+            if (need_pixel_format) {
+                ctx->attributes[i++] = (VASurfaceAttrib) {
+                    .type          = VASurfaceAttribPixelFormat,
+                    .flags         = VA_SURFACE_ATTRIB_SETTABLE,
+                    .value.type    = VAGenericValueTypeInteger,
+                    .value.value.i = fourcc,
+                };
+            }
+            av_assert0(i == ctx->nb_attributes);
+        } else {
+            ctx->attributes = NULL;
+            ctx->nb_attributes = 0;
         }
-        if (need_pixel_format) {
-            ctx->attributes[i++] = (VASurfaceAttrib) {
-                .type          = VASurfaceAttribPixelFormat,
-                .flags         = VA_SURFACE_ATTRIB_SETTABLE,
-                .value.type    = VAGenericValueTypeInteger,
-                .value.value.i = fourcc,
-            };
-        }
-        av_assert0(i == ctx->nb_attributes);
 
         ctx->rt_format = rt_format;
 

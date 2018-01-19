@@ -372,6 +372,11 @@ typedef struct H264Context {
      */
     int picture_idr;
 
+    int crop_left;
+    int crop_right;
+    int crop_top;
+    int crop_bottom;
+
     int8_t(*intra4x4_pred_mode);
     H264PredContext hpc;
 
@@ -509,6 +514,16 @@ typedef struct H264Context {
      * slices) anymore */
     int setup_finished;
 
+    /* This is set to 1 if h264_field_start() has been called successfully,
+     * so all per-field state is properly initialized and we can decode
+     * the slice data */
+    int field_started;
+
+    /* original AVCodecContext dimensions, used to handle container
+     * cropping */
+    int width_from_caller;
+    int height_from_caller;
+
     AVFrame *output_frame;
 
     int enable_er;
@@ -548,7 +563,6 @@ int ff_h264_decode_ref_pic_marking(H264SliceContext *sl, GetBitContext *gb,
                                    const H2645NAL *nal, void *logctx);
 
 void ff_h264_hl_decode_mb(const H264Context *h, H264SliceContext *sl);
-int ff_h264_decode_init(AVCodecContext *avctx);
 void ff_h264_decode_init_vlc(void);
 
 /**

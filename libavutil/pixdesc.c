@@ -313,16 +313,6 @@ static const AVPixFmtDescriptor av_pix_fmt_descriptors[AV_PIX_FMT_NB] = {
         },
         .flags = AV_PIX_FMT_FLAG_PLANAR,
     },
-#if FF_API_XVMC
-    [AV_PIX_FMT_XVMC_MPEG2_MC] = {
-        .name = "xvmcmc",
-        .flags = AV_PIX_FMT_FLAG_HWACCEL,
-    },
-    [AV_PIX_FMT_XVMC_MPEG2_IDCT] = {
-        .name = "xvmcidct",
-        .flags = AV_PIX_FMT_FLAG_HWACCEL,
-    },
-#endif /* FF_API_XVMC */
     [AV_PIX_FMT_UYVY422] = {
         .name = "uyvy422",
         .nb_components = 3,
@@ -832,44 +822,6 @@ static const AVPixFmtDescriptor av_pix_fmt_descriptors[AV_PIX_FMT_NB] = {
         },
         .flags = AV_PIX_FMT_FLAG_PLANAR | AV_PIX_FMT_FLAG_ALPHA,
     },
-#if FF_API_VDPAU
-    [AV_PIX_FMT_VDPAU_H264] = {
-        .name = "vdpau_h264",
-        .log2_chroma_w = 1,
-        .log2_chroma_h = 1,
-        .flags = AV_PIX_FMT_FLAG_HWACCEL,
-    },
-    [AV_PIX_FMT_VDPAU_MPEG1] = {
-        .name = "vdpau_mpeg1",
-        .log2_chroma_w = 1,
-        .log2_chroma_h = 1,
-        .flags = AV_PIX_FMT_FLAG_HWACCEL,
-    },
-    [AV_PIX_FMT_VDPAU_MPEG2] = {
-        .name = "vdpau_mpeg2",
-        .log2_chroma_w = 1,
-        .log2_chroma_h = 1,
-        .flags = AV_PIX_FMT_FLAG_HWACCEL,
-    },
-    [AV_PIX_FMT_VDPAU_WMV3] = {
-        .name = "vdpau_wmv3",
-        .log2_chroma_w = 1,
-        .log2_chroma_h = 1,
-        .flags = AV_PIX_FMT_FLAG_HWACCEL,
-    },
-    [AV_PIX_FMT_VDPAU_VC1] = {
-        .name = "vdpau_vc1",
-        .log2_chroma_w = 1,
-        .log2_chroma_h = 1,
-        .flags = AV_PIX_FMT_FLAG_HWACCEL,
-    },
-    [AV_PIX_FMT_VDPAU_MPEG4] = {
-        .name = "vdpau_mpeg4",
-        .log2_chroma_w = 1,
-        .log2_chroma_h = 1,
-        .flags = AV_PIX_FMT_FLAG_HWACCEL,
-    },
-#endif
     [AV_PIX_FMT_RGB48BE] = {
         .name = "rgb48be",
         .nb_components = 3,
@@ -1731,6 +1683,34 @@ static const AVPixFmtDescriptor av_pix_fmt_descriptors[AV_PIX_FMT_NB] = {
         },
         .flags = AV_PIX_FMT_FLAG_PLANAR | AV_PIX_FMT_FLAG_BE,
     },
+    [AV_PIX_FMT_GBRAP10LE] = {
+        .name = "gbrap10le",
+        .nb_components = 4,
+        .log2_chroma_w = 0,
+        .log2_chroma_h = 0,
+        .comp = {
+            { 2, 2, 0, 0, 10, 1, 9, 1 },       /* R */
+            { 0, 2, 0, 0, 10, 1, 9, 1 },       /* G */
+            { 1, 2, 0, 0, 10, 1, 9, 1 },       /* B */
+            { 3, 2, 0, 0, 10, 1, 9, 1 },       /* A */
+        },
+        .flags = AV_PIX_FMT_FLAG_PLANAR | AV_PIX_FMT_FLAG_RGB |
+                 AV_PIX_FMT_FLAG_ALPHA,
+    },
+    [AV_PIX_FMT_GBRAP10BE] = {
+        .name = "gbrap10be",
+        .nb_components = 4,
+        .log2_chroma_w = 0,
+        .log2_chroma_h = 0,
+        .comp = {
+            { 2, 2, 0, 0, 10, 1, 9, 1 },       /* R */
+            { 0, 2, 0, 0, 10, 1, 9, 1 },       /* G */
+            { 1, 2, 0, 0, 10, 1, 9, 1 },       /* B */
+            { 3, 2, 0, 0, 10, 1, 9, 1 },       /* A */
+        },
+        .flags = AV_PIX_FMT_FLAG_BE | AV_PIX_FMT_FLAG_PLANAR |
+                 AV_PIX_FMT_FLAG_RGB | AV_PIX_FMT_FLAG_ALPHA,
+    },
     [AV_PIX_FMT_GBRAP12LE] = {
         .name = "gbrap12le",
         .nb_components = 4,
@@ -1764,13 +1744,13 @@ static const AVPixFmtDescriptor av_pix_fmt_descriptors[AV_PIX_FMT_NB] = {
 FF_ENABLE_DEPRECATION_WARNINGS
 #endif
 
-static const char *color_range_names[] = {
+static const char * const color_range_names[] = {
     [AVCOL_RANGE_UNSPECIFIED] = "unknown",
     [AVCOL_RANGE_MPEG] = "tv",
     [AVCOL_RANGE_JPEG] = "pc",
 };
 
-static const char *color_primaries_names[] = {
+static const char * const color_primaries_names[] = {
     [AVCOL_PRI_RESERVED0] = "reserved",
     [AVCOL_PRI_BT709] = "bt709",
     [AVCOL_PRI_UNSPECIFIED] = "unknown",
@@ -1787,7 +1767,7 @@ static const char *color_primaries_names[] = {
     [AVCOL_PRI_JEDEC_P22] = "jedec-p22",
 };
 
-static const char *color_transfer_names[] = {
+static const char * const color_transfer_names[] = {
     [AVCOL_TRC_RESERVED0] = "reserved",
     [AVCOL_TRC_BT709] = "bt709",
     [AVCOL_TRC_UNSPECIFIED] = "unknown",
@@ -1809,7 +1789,7 @@ static const char *color_transfer_names[] = {
     [AVCOL_TRC_ARIB_STD_B67] = "arib-std-b67",
 };
 
-static const char *color_space_names[] = {
+static const char * const color_space_names[] = {
     [AVCOL_SPC_RGB] = "gbr",
     [AVCOL_SPC_BT709] = "bt709",
     [AVCOL_SPC_UNSPECIFIED] = "unknown",
@@ -1824,7 +1804,7 @@ static const char *color_space_names[] = {
     [AVCOL_SPC_SMPTE2085] = "smpte2085",
 };
 
-static const char *chroma_location_names[] = {
+static const char * const chroma_location_names[] = {
     [AVCHROMA_LOC_UNSPECIFIED] = "unspecified",
     [AVCHROMA_LOC_LEFT] = "left",
     [AVCHROMA_LOC_CENTER] = "center",

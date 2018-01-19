@@ -453,7 +453,7 @@ static int decode_frame(AVCodecContext *avctx,
         if (length > 0x7fffffff)
             goto fail;
         tag = bytestream2_get_le32(&s->gb);
-        ff_dlog(avctx, "png: tag=%c%c%c%c length=%u\n",
+        ff_dlog(avctx, "png: tag=%c%c%c%c length=%"PRIu32"\n",
                 (tag & 0xff),
                 ((tag >> 8) & 0xff),
                 ((tag >> 16) & 0xff),
@@ -708,4 +708,5 @@ AVCodec ff_png_decoder = {
     .close          = png_dec_end,
     .decode         = decode_frame,
     .capabilities   = AV_CODEC_CAP_DR1 /*| AV_CODEC_CAP_DRAW_HORIZ_BAND*/,
+    .caps_internal  = FF_CODEC_CAP_INIT_THREADSAFE,
 };

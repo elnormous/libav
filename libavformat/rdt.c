@@ -262,7 +262,7 @@ ff_rdt_parse_header(const uint8_t *buf, int len,
      * [2] http://www.wireshark.org/docs/dfref/r/rdt.html and
      *     http://anonsvn.wireshark.org/viewvc/trunk/epan/dissectors/packet-rdt.c
      */
-    bitstream_init(&bc, buf, len << 3);
+    bitstream_init8(&bc, buf, len);
     len_included  = bitstream_read_bit(&bc);
     need_reliable = bitstream_read_bit(&bc);
     set_id        = bitstream_read(&bc, 5);
@@ -324,7 +324,7 @@ get_cache:
                                   st, rdt->rmst[st->index], pkt);
         if (rdt->audio_pkt_cnt == 0 &&
             st->codecpar->codec_id == AV_CODEC_ID_AAC)
-            av_freep(&rdt->rmctx->pb);
+            avio_context_free(&rdt->rmctx->pb);
     }
     pkt->stream_index = st->index;
     pkt->pts = *timestamp;
