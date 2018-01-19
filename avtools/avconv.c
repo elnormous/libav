@@ -1812,6 +1812,8 @@ static int init_input_stream(int ist_index, char *error, int error_len)
     int ret;
     InputStream *ist = input_streams[ist_index];
 
+    ist->st->event_flags |= AVSTREAM_EVENT_FLAG_STREAM_INITIALISED;
+
     if (ist->decoding_needed) {
         AVCodec *codec = ist->dec;
         if (!codec) {
@@ -2199,7 +2201,7 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
         if (auto_gop || auto_fps)
         {
             if (ist->st->avg_frame_rate.num && ist->st->avg_frame_rate.den) {
-                double fps = av_q2d(ist->st->avg_frame_rate);
+                double fps = round(av_q2d(ist->st->avg_frame_rate) * 1000) / 1000;
 
                 if (auto_gop) {
                     int gop = (int)fps;
