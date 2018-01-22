@@ -133,7 +133,7 @@ static int screenshots_frame(AVCodecContext *avctx, AVPacket *pkt,
             int scaled_w = s->screenshots[i].width, scaled_h = s->screenshots[i].height;
             AVFrame* scaled = av_frame_alloc();
             int scaled_size = 0;
-            uint8_t* scaled_buffer;
+            uint8_t* scaled_buffer = NULL;
 
             if (scaled_w == -1 && scaled_h == -1) {
                 scaled_w = pict->width;
@@ -156,6 +156,7 @@ static int screenshots_frame(AVCodecContext *avctx, AVPacket *pkt,
 
             // scale
             {
+                // TODO: move to ctx - init only once
                 struct SwsContext *resize;
                 resize = sws_getContext(pict->width, pict->height, pict->format,
                         scaled_w, scaled_h, AV_PIX_FMT_YUVJ420P, SWS_BICUBIC, NULL, NULL, NULL);
@@ -168,6 +169,7 @@ static int screenshots_frame(AVCodecContext *avctx, AVPacket *pkt,
             save_frame(scaled, s->screenshots[i].filename, "jpg", AV_CODEC_ID_MJPEG, 2);
 //            save_frame(scaled, s->screenshots[i].filename, "jpg", AV_CODEC_ID_JPEG2000, 4);
 
+            av_freep(&scaled_buffer);
             av_frame_free(&scaled);
         }
 
