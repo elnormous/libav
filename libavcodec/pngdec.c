@@ -520,7 +520,13 @@ static int decode_frame(AVCodecContext *avctx,
                 } else if (s->bit_depth == 16 &&
                            s->color_type == PNG_COLOR_TYPE_GRAY_ALPHA) {
                     avctx->pix_fmt = AV_PIX_FMT_YA16BE;
+                } else if (s->bit_depth == 16 &&
+                           s->color_type == PNG_COLOR_TYPE_RGB_ALPHA) {
+                    avctx->pix_fmt = AV_PIX_FMT_RGBA64BE;
                 } else {
+                    avpriv_report_missing_feature(avctx,
+                                                  "Bit depth %d color type %d",
+                                                  s->bit_depth, s->color_type);
                     goto fail;
                 }
 

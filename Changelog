@@ -14,6 +14,12 @@ version <next>:
 - Cineform HD decoder
 - VP9 superframe split/merge bitstream filters
 - FM Screen Capture Codec decoder
+- ClearVideo decoder (I-frames only)
+- support for decoding through D3D11VA in avconv
+- Cinepak encoder
+- Intel QSV-accelerated MJPEG encoding
+- NVIDIA CUVID-accelerated H.264 and HEVC decoding
+- Intel QSV-accelerated overlay filter
 
 
 version 12:

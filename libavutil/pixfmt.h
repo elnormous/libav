@@ -205,7 +205,7 @@ enum AVPixelFormat {
      */
     AV_PIX_FMT_MMAL,
 
-    AV_PIX_FMT_D3D11VA_VLD,  ///< HW decoding through Direct3D11, Picture.data[3] contains a ID3D11VideoDecoderOutputView pointer
+    AV_PIX_FMT_D3D11VA_VLD,  ///< HW decoding through Direct3D11 via old API, Picture.data[3] contains a ID3D11VideoDecoderOutputView pointer
 
     /**
      * HW acceleration through CUDA. data[i] contain CUdeviceptr pointers
@@ -236,6 +236,18 @@ enum AVPixelFormat {
 
     AV_PIX_FMT_GBRAP10BE,  ///< planar GBR 4:4:4:4 40bpp, big-endian
     AV_PIX_FMT_GBRAP10LE,  ///< planar GBR 4:4:4:4 40bpp, little-endian
+
+    /**
+     * Hardware surfaces for Direct3D11.
+     *
+     * This is preferred over the legacy AV_PIX_FMT_D3D11VA_VLD. The new D3D11
+     * hwaccel API and filtering support AV_PIX_FMT_D3D11 only.
+     *
+     * data[0] contains a ID3D11Texture2D pointer, and data[1] contains the
+     * texture array index of the frame as intptr_t if the ID3D11Texture2D is
+     * an array texture (or always 0 if it's a normal texture).
+     */
+    AV_PIX_FMT_D3D11,
 
     AV_PIX_FMT_NB,        ///< number of pixel formats, DO NOT USE THIS if you want to link with shared libav* because the number of formats might differ between versions
 };
@@ -372,6 +384,9 @@ enum AVColorSpace {
     AVCOL_SPC_BT2020_NCL  = 9,  ///< ITU-R BT2020 non-constant luminance system
     AVCOL_SPC_BT2020_CL   = 10, ///< ITU-R BT2020 constant luminance system
     AVCOL_SPC_SMPTE2085   = 11, ///< SMPTE 2085, Y'D'zD'x
+    AVCOL_SPC_CHROMA_DERIVED_NCL = 12, ///< Chromaticity-derived non-constant luminance system
+    AVCOL_SPC_CHROMA_DERIVED_CL = 13, ///< Chromaticity-derived constant luminance system
+    AVCOL_SPC_ICTCP       = 14, ///< ITU-R BT.2100-0, ICtCp
     AVCOL_SPC_NB,               ///< Not part of ABI
 };
 

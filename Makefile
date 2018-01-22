@@ -161,17 +161,17 @@ install-data: $(DATA_FILES)
 	$(Q)mkdir -p "$(DATADIR)"
 	$(INSTALL) -m 644 $(DATA_FILES) "$(DATADIR)"
 
-uninstall: uninstall-libs uninstall-headers uninstall-data
+uninstall: uninstall-data uninstall-headers uninstall-libs uninstall-pkgconfig
 
 uninstall-data:
 	$(RM) -r "$(DATADIR)"
 
 clean::
 	$(RM) $(CLEANSUFFIXES)
+	$(RM) $(addprefix compat/,$(CLEANSUFFIXES)) $(addprefix compat/*/,$(CLEANSUFFIXES))
 	$(RM) -rf coverage.info lcov
 
-distclean::
-	$(RM) $(DISTCLEANSUFFIXES)
+distclean: clean
 	$(RM) .version avversion.h config.asm config.h mapfile \
             avbuild/.config avbuild/config.* libavutil/avconfig.h \
             libavcodec/bsf_list.c libavformat/protocol_list.c

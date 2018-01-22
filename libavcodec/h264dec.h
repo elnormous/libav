@@ -268,7 +268,7 @@ typedef struct H264SliceContext {
                                          *   according to picture reordering in slice header */
     struct {
         uint8_t op;
-        uint8_t val;
+        uint32_t val;
     } ref_modifications[2][32];
     int nb_ref_modifications[2];
 
@@ -361,6 +361,7 @@ typedef struct H264Context {
     int context_initialized;
     int flags;
     int workaround_bugs;
+    int x264_build;
     /* Set when slice threading is used and at least one slice uses deblocking
      * mode 1 (i.e. across slice boundaries). Then we disable the loop filter
      * during normal MB decoding and execute it serially at the end.

@@ -92,6 +92,11 @@ typedef struct HWContextType {
                                const AVFrame *src, int flags);
     int              (*map_from)(AVHWFramesContext *ctx, AVFrame *dst,
                                  const AVFrame *src, int flags);
+
+    int              (*frames_derive_to)(AVHWFramesContext *dst_ctx,
+                                         AVHWFramesContext *src_ctx, int flags);
+    int              (*frames_derive_from)(AVHWFramesContext *dst_ctx,
+                                           AVHWFramesContext *src_ctx, int flags);
 } HWContextType;
 
 struct AVHWDeviceInternal {
@@ -116,6 +121,11 @@ struct AVHWFramesInternal {
      * context it was derived from.
      */
     AVBufferRef *source_frames;
+    /**
+     * Flags to apply to the mapping from the source to the derived
+     * frame context when trying to allocate in the derived context.
+     */
+    int source_allocation_map_flags;
 };
 
 typedef struct HWMapDescriptor {
@@ -148,6 +158,7 @@ int ff_hwframe_map_create(AVBufferRef *hwframe_ref,
 
 
 extern const HWContextType ff_hwcontext_type_cuda;
+extern const HWContextType ff_hwcontext_type_d3d11va;
 extern const HWContextType ff_hwcontext_type_dxva2;
 extern const HWContextType ff_hwcontext_type_qsv;
 extern const HWContextType ff_hwcontext_type_vaapi;

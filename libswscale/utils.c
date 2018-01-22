@@ -20,13 +20,14 @@
 
 #include "config.h"
 
+#define _DEFAULT_SOURCE
 #define _SVID_SOURCE // needed for MAP_ANONYMOUS
 #include <assert.h>
 #include <inttypes.h>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#if HAVE_SYS_MMAN_H
+#if HAVE_MMAP
 #include <sys/mman.h>
 #if defined(MAP_ANON) && !defined(MAP_ANONYMOUS)
 #define MAP_ANONYMOUS MAP_ANON
@@ -1097,7 +1098,11 @@ av_cold int sws_init_context(SwsContext *c, SwsFilter *srcFilter,
         }
     }
 
-#define USE_MMAP (HAVE_MMAP && HAVE_MPROTECT && defined MAP_ANONYMOUS)
+#if HAVE_MMAP && HAVE_MPROTECT && defined(MAP_ANONYMOUS)
+#define USE_MMAP 1
+#else
+#define USE_MMAP 0
+#endif
 
     /* precalculate horizontal scaler filter coefficients */
     {

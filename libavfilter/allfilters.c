@@ -98,6 +98,7 @@ void avfilter_register_all(void)
     REGISTER_FILTER(NULL,           null,           vf);
     REGISTER_FILTER(OCV,            ocv,            vf);
     REGISTER_FILTER(OVERLAY,        overlay,        vf);
+    REGISTER_FILTER(OVERLAY_QSV,    overlay_qsv,    vf);
     REGISTER_FILTER(PAD,            pad,            vf);
     REGISTER_FILTER(PIXDESCTEST,    pixdesctest,    vf);
     REGISTER_FILTER(SCALE,          scale,          vf);
@@ -116,6 +117,7 @@ void avfilter_register_all(void)
     REGISTER_FILTER(TRIM,           trim,           vf);
     REGISTER_FILTER(UNSHARP,        unsharp,        vf);
     REGISTER_FILTER(VFLIP,          vflip,          vf);
+    REGISTER_FILTER(VPP_QSV,        vpp_qsv,        vf);
     REGISTER_FILTER(YADIF,          yadif,          vf);
 
     REGISTER_FILTER(COLOR,          color,          vsrc);

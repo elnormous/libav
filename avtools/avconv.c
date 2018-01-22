@@ -1221,9 +1221,9 @@ static void do_streamcopy(InputStream *ist, OutputStream *ost, const AVPacket *p
 {
     OutputFile *of = output_files[ost->file_index];
     InputFile   *f = input_files [ist->file_index];
-    int64_t start_time;
-    int64_t ost_tb_start_time;
-    AVPacket opkt;
+    int64_t start_time = (of->start_time == AV_NOPTS_VALUE) ? 0 : of->start_time;
+    int64_t ost_tb_start_time = av_rescale_q(start_time, AV_TIME_BASE_Q, ost->mux_timebase);
+    AVPacket opkt = { 0 };
 
     MUTEX_LOCK(&of->data_lock);
     start_time = (of->start_time == AV_NOPTS_VALUE) ? 0 : of->start_time;
@@ -1233,6 +1233,12 @@ static void do_streamcopy(InputStream *ist, OutputStream *ost, const AVPacket *p
     ost_tb_start_time = av_rescale_q(start_time, AV_TIME_BASE_Q, ost->mux_timebase);
 
     av_init_packet(&opkt);
+
+    // EOF: flush output bitstream filters.
+    if (!pkt) {
+        output_packet(of, &opkt, ost, 1);
+        return;
+    }
 
     if ((!ost->frame_number && !(pkt->flags & AV_PKT_FLAG_KEY)) &&
         !ost->copy_initial_nonkeyframes)
@@ -1708,7 +1714,7 @@ static void process_input_packet(InputStream *ist, const AVPacket *pkt, int no_e
             break;
         }
     }
-    for (i = 0; pkt && i < nb_output_streams; i++) {
+    for (i = 0; i < nb_output_streams; i++) {
         OutputStream *ost = output_streams[i];
 
         if (!check_output_constraints(ist, ost) || ost->encoding_needed)
@@ -1743,44 +1749,77 @@ static void print_sdp(void)
     av_freep(&avc);
 }
 
-static const HWAccel *get_hwaccel(enum AVPixelFormat pix_fmt)
-{
-    int i;
-    for (i = 0; hwaccels[i].name; i++)
-        if (hwaccels[i].pix_fmt == pix_fmt)
-            return &hwaccels[i];
-    return NULL;
-}
-
 static enum AVPixelFormat get_format(AVCodecContext *s, const enum AVPixelFormat *pix_fmts)
 {
     InputStream *ist = s->opaque;
     const enum AVPixelFormat *p;
     int ret;
 
-    for (p = pix_fmts; *p != -1; p++) {
+    for (p = pix_fmts; *p != AV_PIX_FMT_NONE; p++) {
         const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(*p);
-        const HWAccel *hwaccel;
+        const AVCodecHWConfig  *config = NULL;
+        int i;
 
         if (!(desc->flags & AV_PIX_FMT_FLAG_HWACCEL))
             break;
 
-        hwaccel = get_hwaccel(*p);
-        if (!hwaccel ||
-            (ist->active_hwaccel_id && ist->active_hwaccel_id != hwaccel->id) ||
-            (ist->hwaccel_id != HWACCEL_AUTO && ist->hwaccel_id != hwaccel->id))
-            continue;
+        if (ist->hwaccel_id == HWACCEL_GENERIC ||
+            ist->hwaccel_id == HWACCEL_AUTO) {
+            for (i = 0;; i++) {
+                config = avcodec_get_hw_config(s->codec, i);
+                if (!config)
+                    break;
+                if (!(config->methods &
+                      AV_CODEC_HW_CONFIG_METHOD_HW_DEVICE_CTX))
+                    continue;
+                if (config->pix_fmt == *p)
+                    break;
+            }
+        }
+        if (config) {
+            if (config->device_type != ist->hwaccel_device_type) {
+                // Different hwaccel offered, ignore.
+                continue;
+            }
 
-        ret = hwaccel->init(s);
-        if (ret < 0) {
-            if (ist->hwaccel_id == hwaccel->id) {
+            ret = hwaccel_decode_init(s);
+            if (ret < 0) {
+                if (ist->hwaccel_id == HWACCEL_GENERIC) {
+                    av_log(NULL, AV_LOG_FATAL,
+                           "%s hwaccel requested for input stream #%d:%d, "
+                           "but cannot be initialized.\n",
+                           av_hwdevice_get_type_name(config->device_type),
+                           ist->file_index, ist->st->index);
+                    return AV_PIX_FMT_NONE;
+                }
+                continue;
+            }
+        } else {
+            const HWAccel *hwaccel = NULL;
+            int i;
+            for (i = 0; hwaccels[i].name; i++) {
+                if (hwaccels[i].pix_fmt == *p) {
+                    hwaccel = &hwaccels[i];
+                    break;
+                }
+            }
+            if (!hwaccel) {
+                // No hwaccel supporting this pixfmt.
+                continue;
+            }
+            if (hwaccel->id != ist->hwaccel_id) {
+                // Does not match requested hwaccel.
+                continue;
+            }
+
+            ret = hwaccel->init(s);
+            if (ret < 0) {
                 av_log(NULL, AV_LOG_FATAL,
                        "%s hwaccel requested for input stream #%d:%d, "
                        "but cannot be initialized.\n", hwaccel->name,
                        ist->file_index, ist->st->index);
                 return AV_PIX_FMT_NONE;
             }
-            continue;
         }
 
         if (ist->hw_frames_ctx) {
@@ -1789,8 +1828,7 @@ static enum AVPixelFormat get_format(AVCodecContext *s, const enum AVPixelFormat
                 return AV_PIX_FMT_NONE;
         }
 
-        ist->active_hwaccel_id = hwaccel->id;
-        ist->hwaccel_pix_fmt   = *p;
+        ist->hwaccel_pix_fmt = *p;
         break;
     }
 
@@ -2832,9 +2870,9 @@ static int seek_to_start(InputFile *ifile, AVFormatContext *is)
                 continue;
         } else {
             if (ist->framerate.num) {
-                duration = av_rescale_q(1, ist->framerate, ist->st->time_base);
+                duration = FFMAX(av_rescale_q(1, av_inv_q(ist->framerate), ist->st->time_base), 1);
             } else if (ist->st->avg_frame_rate.num) {
-                duration = av_rescale_q(1, ist->st->avg_frame_rate, ist->st->time_base);
+                duration = FFMAX(av_rescale_q(1, av_inv_q(ist->st->avg_frame_rate), ist->st->time_base), 1);
             } else duration = 1;
         }
         if (!ifile->duration)
@@ -2894,9 +2932,11 @@ static int process_input(void)
         return ret;
     }
     if (ret < 0 && ifile->loop) {
-        if ((ret = seek_to_start(ifile, is)) < 0)
-            return ret;
-        ret = get_input_packet(ifile, &pkt);
+        ret = seek_to_start(ifile, is);
+        if(ret < 0)
+            av_log(NULL, AV_LOG_WARNING, "Seek to start failed.\n");
+        else
+            ret = get_input_packet(ifile, &pkt);
     }
     if (ret < 0) {
         if (ret != AVERROR_EOF) {
@@ -3068,7 +3108,7 @@ static int transcode(void)
     /* at the end of stream, we must flush the decoder buffers */
     for (i = 0; i < nb_input_streams; i++) {
         ist = input_streams[i];
-        if (!input_files[ist->file_index]->eof_reached && ist->decoding_needed) {
+        if (!input_files[ist->file_index]->eof_reached) {
             process_input_packet(ist, NULL, 0);
         }
     }

@@ -39,6 +39,7 @@
 #include "hevc.h"
 #include "hevc_data.h"
 #include "hevcdec.h"
+#include "hwaccel.h"
 #include "profiles.h"
 
 const uint8_t ff_hevc_qpel_extra_before[4] = { 0, 3, 3, 3 };
@@ -383,14 +384,16 @@ static void export_stream_params(AVCodecContext *avctx, const HEVCParamSets *ps,
 
 static enum AVPixelFormat get_format(HEVCContext *s, const HEVCSPS *sps)
 {
-    #define HWACCEL_MAX (CONFIG_HEVC_DXVA2_HWACCEL + CONFIG_HEVC_D3D11VA_HWACCEL + \
-                         CONFIG_HEVC_VAAPI_HWACCEL + CONFIG_HEVC_VDPAU_HWACCEL)
+    #define HWACCEL_MAX (CONFIG_HEVC_DXVA2_HWACCEL + CONFIG_HEVC_D3D11VA_HWACCEL * 2 + \
+                         CONFIG_HEVC_VAAPI_HWACCEL + CONFIG_HEVC_VDPAU_HWACCEL + \
+                         CONFIG_HEVC_CUVID_HWACCEL)
     enum AVPixelFormat pix_fmts[HWACCEL_MAX + 2], *fmt = pix_fmts;
 
     if (sps->pix_fmt == AV_PIX_FMT_YUV420P || sps->pix_fmt == AV_PIX_FMT_YUVJ420P ||
         sps->pix_fmt == AV_PIX_FMT_YUV420P10) {
 #if CONFIG_HEVC_D3D11VA_HWACCEL
         *fmt++ = AV_PIX_FMT_D3D11VA_VLD;
+        *fmt++ = AV_PIX_FMT_D3D11;
 #endif
 #if CONFIG_HEVC_DXVA2_HWACCEL
         *fmt++ = AV_PIX_FMT_DXVA2_VLD;
@@ -398,8 +401,14 @@ static enum AVPixelFormat get_format(HEVCContext *s, const HEVCSPS *sps)
 #if CONFIG_HEVC_VAAPI_HWACCEL
         *fmt++ = AV_PIX_FMT_VAAPI;
 #endif
+#if CONFIG_HEVC_CUVID_HWACCEL && HAVE_CUVIDDECODECREATEINFO_BITDEPTHMINUS8
+        *fmt++ = AV_PIX_FMT_CUDA;
+#endif
     }
     if (sps->pix_fmt == AV_PIX_FMT_YUV420P || sps->pix_fmt == AV_PIX_FMT_YUVJ420P) {
+#if CONFIG_HEVC_CUVID_HWACCEL && !HAVE_CUVIDDECODECREATEINFO_BITDEPTHMINUS8
+        *fmt++ = AV_PIX_FMT_CUDA;
+#endif
 #if CONFIG_HEVC_VDPAU_HWACCEL
         *fmt++ = AV_PIX_FMT_VDPAU;
 #endif
@@ -489,13 +498,14 @@ static int hls_slice_header(HEVCContext *s)
 
         ff_hevc_clear_refs(s);
 
+        ret = set_sps(s, sps, sps->pix_fmt);
+        if (ret < 0)
+            return ret;
+
         pix_fmt = get_format(s, sps);
         if (pix_fmt < 0)
             return pix_fmt;
-
-        ret = set_sps(s, sps, pix_fmt);
-        if (ret < 0)
-            return ret;
+        s->avctx->pix_fmt = pix_fmt;
 
         s->seq_decode = (s->seq_decode + 1) & 0xff;
         s->max_ra     = INT_MAX;
@@ -2362,18 +2372,18 @@ static int set_side_data(HEVCContext *s)
 {
     AVFrame *out = s->ref->frame;
 
-    if (s->sei_frame_packing_present &&
-        s->frame_packing_arrangement_type >= 3 &&
-        s->frame_packing_arrangement_type <= 5 &&
-        s->content_interpretation_type > 0 &&
-        s->content_interpretation_type < 3) {
+    if (s->sei.frame_packing.present &&
+        s->sei.frame_packing.arrangement_type >= 3 &&
+        s->sei.frame_packing.arrangement_type <= 5 &&
+        s->sei.frame_packing.content_interpretation_type > 0 &&
+        s->sei.frame_packing.content_interpretation_type < 3) {
         AVStereo3D *stereo = av_stereo3d_create_side_data(out);
         if (!stereo)
             return AVERROR(ENOMEM);
 
-        switch (s->frame_packing_arrangement_type) {
+        switch (s->sei.frame_packing.arrangement_type) {
         case 3:
-            if (s->quincunx_subsampling)
+            if (s->sei.frame_packing.quincunx_subsampling)
                 stereo->type = AV_STEREO3D_SIDEBYSIDE_QUINCUNX;
             else
                 stereo->type = AV_STEREO3D_SIDEBYSIDE;
@@ -2386,13 +2396,21 @@ static int set_side_data(HEVCContext *s)
             break;
         }
 
-        if (s->content_interpretation_type == 2)
+        if (s->sei.frame_packing.content_interpretation_type == 2)
             stereo->flags = AV_STEREO3D_FLAG_INVERT;
+
+        if (s->sei.frame_packing.arrangement_type == 5) {
+            if (s->sei.frame_packing.current_frame_is_frame0_flag)
+                stereo->view = AV_STEREO3D_VIEW_LEFT;
+            else
+                stereo->view = AV_STEREO3D_VIEW_RIGHT;
+        }
     }
 
-    if (s->sei_display_orientation_present &&
-        (s->sei_anticlockwise_rotation || s->sei_hflip || s->sei_vflip)) {
-        double angle = s->sei_anticlockwise_rotation * 360 / (double) (1 << 16);
+    if (s->sei.display_orientation.present &&
+        (s->sei.display_orientation.anticlockwise_rotation ||
+         s->sei.display_orientation.hflip || s->sei.display_orientation.vflip)) {
+        double angle = s->sei.display_orientation.anticlockwise_rotation * 360 / (double) (1 << 16);
         AVFrameSideData *rotation = av_frame_new_side_data(out,
                                                            AV_FRAME_DATA_DISPLAYMATRIX,
                                                            sizeof(int32_t) * 9);
@@ -2401,7 +2419,14 @@ static int set_side_data(HEVCContext *s)
 
         av_display_rotation_set((int32_t *)rotation->data, angle);
         av_display_matrix_flip((int32_t *)rotation->data,
-                               s->sei_hflip, s->sei_vflip);
+                               s->sei.display_orientation.hflip,
+                               s->sei.display_orientation.vflip);
+    }
+
+    if (s->sei.alternative_transfer.present &&
+        av_color_transfer_name(s->sei.alternative_transfer.preferred_transfer_characteristics) &&
+        s->sei.alternative_transfer.preferred_transfer_characteristics != AVCOL_TRC_UNSPECIFIED) {
+        s->avctx->color_trc = out->color_trc = s->sei.alternative_transfer.preferred_transfer_characteristics;
     }
 
     return 0;
@@ -2486,7 +2511,8 @@ static int decode_nal_unit(HEVCContext *s, const H2645NAL *nal)
         break;
     case HEVC_NAL_SEI_PREFIX:
     case HEVC_NAL_SEI_SUFFIX:
-        ret = ff_hevc_decode_nal_sei(s);
+        ret = ff_hevc_decode_nal_sei(gb, s->avctx, &s->sei,
+                                     s->nal_unit_type);
         if (ret < 0)
             goto fail;
         break;
@@ -2694,7 +2720,7 @@ static int verify_md5(HEVCContext *s, AVFrame *frame)
         }
         av_md5_final(s->md5_ctx, md5);
 
-        if (!memcmp(md5, s->md5[i], 16)) {
+        if (!memcmp(md5, s->sei.picture_hash.md5[i], 16)) {
             av_log   (s->avctx, AV_LOG_DEBUG, "plane %d - correct ", i);
             print_md5(s->avctx, AV_LOG_DEBUG, md5);
             av_log   (s->avctx, AV_LOG_DEBUG, "; ");
@@ -2702,7 +2728,7 @@ static int verify_md5(HEVCContext *s, AVFrame *frame)
             av_log   (s->avctx, AV_LOG_ERROR, "mismatching checksum of plane %d - ", i);
             print_md5(s->avctx, AV_LOG_ERROR, md5);
             av_log   (s->avctx, AV_LOG_ERROR, " != ");
-            print_md5(s->avctx, AV_LOG_ERROR, s->md5[i]);
+            print_md5(s->avctx, AV_LOG_ERROR, s->sei.picture_hash.md5[i]);
             av_log   (s->avctx, AV_LOG_ERROR, "\n");
             return AVERROR_INVALIDDATA;
         }
@@ -2822,7 +2848,7 @@ static int hevc_decode_frame(AVCodecContext *avctx, void *data, int *got_output,
     } else {
         /* verify the SEI checksum */
         if (avctx->err_recognition & AV_EF_CRCCHECK && s->is_decoded &&
-            s->is_md5) {
+            s->sei.picture_hash.is_md5) {
             ret = verify_md5(s, s->ref->frame);
             if (ret < 0 && avctx->err_recognition & AV_EF_EXPLODE) {
                 ff_hevc_unref_frame(s, s->ref, ~0);
@@ -2830,7 +2856,7 @@ static int hevc_decode_frame(AVCodecContext *avctx, void *data, int *got_output,
             }
         }
     }
-    s->is_md5 = 0;
+    s->sei.picture_hash.is_md5 = 0;
 
     if (s->is_decoded) {
         av_log(avctx, AV_LOG_DEBUG, "Decoded frame with POC %d.\n", s->poc);
@@ -3095,4 +3121,25 @@ AVCodec ff_hevc_decoder = {
                              AV_CODEC_CAP_FRAME_THREADS,
     .profiles              = NULL_IF_CONFIG_SMALL(ff_hevc_profiles),
     .caps_internal         = FF_CODEC_CAP_EXPORTS_CROPPING | FF_CODEC_CAP_INIT_THREADSAFE,
+    .hw_configs            = (const AVCodecHWConfigInternal*[]) {
+#if CONFIG_HEVC_CUVID_HWACCEL
+                               HWACCEL_CUVID(hevc),
+#endif
+#if CONFIG_HEVC_DXVA2_HWACCEL
+                               HWACCEL_DXVA2(hevc),
+#endif
+#if CONFIG_HEVC_D3D11VA_HWACCEL
+                               HWACCEL_D3D11VA(hevc),
+#endif
+#if CONFIG_HEVC_D3D11VA2_HWACCEL
+                               HWACCEL_D3D11VA2(hevc),
+#endif
+#if CONFIG_HEVC_VAAPI_HWACCEL
+                               HWACCEL_VAAPI(hevc),
+#endif
+#if CONFIG_HEVC_VDPAU_HWACCEL
+                               HWACCEL_VDPAU(hevc),
+#endif
+                               NULL
+                           },
 };
