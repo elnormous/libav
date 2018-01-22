@@ -84,7 +84,7 @@ static int save_frame(AVFrame *pFrame, const char* basename, const char* extensi
     codec_context->height = pFrame->height;
     codec_context->width = pFrame->width;
     codec_context->time_base = (AVRational){1, 25};
-//    codec_context->compression_level = compression;
+    //    codec_context->compression_level = compression;
 
     if (avcodec_open2(codec_context, codec, NULL) < 0) {
         av_log(NULL, AV_LOG_WARNING, "save screenshot (%s) >> Error on codec open\n", extension);
@@ -120,7 +120,7 @@ fail:
 }
 
 static int screenshots_frame(AVCodecContext *avctx, AVPacket *pkt,
-                        const AVFrame *pict, int *got_packet)
+                             const AVFrame *pict, int *got_packet)
 {
     ScreenshotsContext *s = avctx->priv_data;
 
@@ -133,7 +133,7 @@ static int screenshots_frame(AVCodecContext *avctx, AVPacket *pkt,
             int scaled_w = s->screenshots[i].width, scaled_h = s->screenshots[i].height;
             AVFrame* scaled = av_frame_alloc();
             int scaled_size = 0;
-            uint8_t* scaled_buffer;
+            uint8_t* scaled_buffer = NULL;
 
             if (scaled_w == -1 && scaled_h == -1) {
                 scaled_w = pict->width;
@@ -148,7 +148,7 @@ static int screenshots_frame(AVCodecContext *avctx, AVPacket *pkt,
             scaled_buffer = (uint8_t *)av_malloc(scaled_size * sizeof(uint8_t));
 
             av_image_fill_arrays(scaled->data, scaled->linesize,
-                                scaled_buffer, AV_PIX_FMT_YUVJ420P, scaled_w, scaled_h, 1);
+                                 scaled_buffer, AV_PIX_FMT_YUVJ420P, scaled_w, scaled_h, 1);
 
             scaled->format = AV_PIX_FMT_YUVJ420P;
             scaled->width = scaled_w;
@@ -156,9 +156,10 @@ static int screenshots_frame(AVCodecContext *avctx, AVPacket *pkt,
 
             // scale
             {
+                // TODO: move to ctx - init only once
                 struct SwsContext *resize;
                 resize = sws_getContext(pict->width, pict->height, pict->format,
-                        scaled_w, scaled_h, AV_PIX_FMT_YUVJ420P, SWS_BICUBIC, NULL, NULL, NULL);
+                                        scaled_w, scaled_h, AV_PIX_FMT_YUVJ420P, SWS_BICUBIC, NULL, NULL, NULL);
 
                 sws_scale(resize, (const uint8_t *const *)pict->data, pict->linesize, 0, pict->height, scaled->data, scaled->linesize);
                 sws_freeContext(resize);
@@ -166,8 +167,9 @@ static int screenshots_frame(AVCodecContext *avctx, AVPacket *pkt,
 
             // encode / save to files
             save_frame(scaled, s->screenshots[i].filename, "jpg", AV_CODEC_ID_MJPEG, 2);
-//            save_frame(scaled, s->screenshots[i].filename, "jpg", AV_CODEC_ID_JPEG2000, 4);
+            //            save_frame(scaled, s->screenshots[i].filename, "jpg", AV_CODEC_ID_JPEG2000, 4);
 
+            av_freep(&scaled_buffer);
             av_frame_free(&scaled);
         }
 
@@ -275,3 +277,4 @@ AVCodec ff_screenshots_encoder = {
         AV_PIX_FMT_NONE
     },
 };
+
