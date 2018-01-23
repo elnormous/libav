@@ -1658,6 +1658,9 @@ static int mkv_parse_video_projection(AVStream *st, const MatroskaTrack *track)
             return AVERROR_INVALIDDATA;
         }
         break;
+    case MATROSKA_VIDEO_PROJECTION_TYPE_RECTANGULAR:
+        /* No Spherical metadata */
+        return 0;
     default:
         av_log(NULL, AV_LOG_WARNING,
                "Unknown spherical metadata type %"PRIu64"\n",
@@ -1913,7 +1916,7 @@ static int matroska_parse_tracks(AVFormatContext *s)
             track->audio.sub_packet_h    = avio_rb16(&b);
             track->audio.frame_size      = avio_rb16(&b);
             track->audio.sub_packet_size = avio_rb16(&b);
-            if (flavor                       <= 0 ||
+            if (flavor                        < 0 ||
                 track->audio.coded_framesize <= 0 ||
                 track->audio.sub_packet_h    <= 0 ||
                 track->audio.frame_size      <= 0 ||

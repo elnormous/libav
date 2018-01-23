@@ -870,6 +870,7 @@ static int dash_write_header(AVFormatContext *s)
         avcodec_parameters_copy(st->codecpar, s->streams[i]->codecpar);
         st->sample_aspect_ratio = s->streams[i]->sample_aspect_ratio;
         st->time_base = s->streams[i]->time_base;
+        st->avg_frame_rate = s->streams[i]->avg_frame_rate;
         ctx->avoid_negative_ts = s->avoid_negative_ts;
 
         if ((ret = avio_open_dyn_buf(&ctx->pb)) < 0)
@@ -1040,6 +1041,7 @@ static int dash_flush(AVFormatContext *s, int final, int stream)
 
     for (i = 0; i < s->nb_streams; i++) {
         OutputStream *os = &c->streams[i];
+        AVStream *st = s->streams[i];
         char filename[1024] = "", full_path[1024], temp_path[1024];
         int range_length, index_length = 0;
 
@@ -1091,7 +1093,9 @@ static int dash_flush(AVFormatContext *s, int final, int stream)
 
         if (!os->bit_rate) {
             // calculate average bitrate of first segment
-            int64_t bitrate = (int64_t) range_length * 8 * AV_TIME_BASE / (os->max_pts - os->start_pts);
+            int64_t bitrate = (int64_t) range_length * 8 * AV_TIME_BASE / av_rescale_q(os->max_pts - os->start_pts,
+                                                                                       st->time_base,
+                                                                                       AV_TIME_BASE_Q);
             if (bitrate >= 0) {
                 os->bit_rate = bitrate;
                 snprintf(os->bandwidth_str, sizeof(os->bandwidth_str),
@@ -1272,6 +1276,5 @@ AVOutputFormat ff_dash_muxer = {
     .write_header   = dash_write_header,
     .write_packet   = dash_write_packet,
     .write_trailer  = dash_write_trailer,
-    .codec_tag      = (const AVCodecTag* const []){ ff_mp4_obj_type, 0 },
     .priv_class     = &dash_class,
 };

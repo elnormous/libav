@@ -41,6 +41,7 @@
 #include "libavutil/dict.h"
 #include "avcodec.h"
 #include "decode.h"
+#include "hwaccel.h"
 #include "libavutil/opt.h"
 #include "me_cmp.h"
 #include "mpegvideo.h"
@@ -1335,21 +1336,27 @@ int ff_match_2uint16(const uint16_t(*tab)[2], int size, int a, int b)
     return i;
 }
 
-static AVHWAccel *first_hwaccel = NULL;
+const AVCodecHWConfig *avcodec_get_hw_config(const AVCodec *codec, int index)
+{
+    int i;
+    if (!codec->hw_configs || index < 0)
+        return NULL;
+    for (i = 0; i <= index; i++)
+        if (!codec->hw_configs[i])
+            return NULL;
+    return &codec->hw_configs[index]->public;
+}
+
+#if FF_API_USER_VISIBLE_AVHWACCEL
+AVHWAccel *av_hwaccel_next(const AVHWAccel *hwaccel)
+{
+    return NULL;
+}
 
 void av_register_hwaccel(AVHWAccel *hwaccel)
 {
-    AVHWAccel **p = &first_hwaccel;
-    while (*p)
-        p = &(*p)->next;
-    *p = hwaccel;
-    hwaccel->next = NULL;
 }
-
-AVHWAccel *av_hwaccel_next(const AVHWAccel *hwaccel)
-{
-    return hwaccel ? hwaccel->next : first_hwaccel;
-}
+#endif
 
 int av_lockmgr_register(int (*cb)(void **mutex, enum AVLockOp op))
 {
