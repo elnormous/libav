@@ -1237,6 +1237,7 @@ static void do_streamcopy(InputStream *ist, OutputStream *ost, const AVPacket *p
     // EOF: flush output bitstream filters.
     if (!pkt) {
         output_packet(of, &opkt, ost, 1);
+        MUTEX_UNLOCK(&ost->data_lock);
         return;
     }
 
