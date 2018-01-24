@@ -1857,7 +1857,7 @@ int ff_mov_read_stsd_entries(MOVContext *c, AVIOContext *pb, int entries)
     if (pb->eof_reached)
         return AVERROR_EOF;
 
-    return mov_finalize_stsd_codec(c, pb, st, sc);
+    return 0;
 }
 
 static int mov_read_stsd(MOVContext *c, AVIOContext *pb, MOVAtom atom)
@@ -1875,6 +1875,11 @@ static int mov_read_stsd(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     avio_rb24(pb); /* flags */
     entries = avio_rb32(pb);
 
+    if (entries <= 0) {
+        av_log(c->fc, AV_LOG_ERROR, "invalid STSD entries %d\n", entries);
+        return AVERROR_INVALIDDATA;
+    }
+
     if (sc->extradata) {
         av_log(c->fc, AV_LOG_ERROR,
                "Duplicate stsd found in this track.\n");
@@ -1886,24 +1891,33 @@ static int mov_read_stsd(MOVContext *c, AVIOContext *pb, MOVAtom atom)
     if (!sc->extradata)
         return AVERROR(ENOMEM);
 
-    sc->stsd_count = entries;
-    sc->extradata_size = av_mallocz_array(sc->stsd_count, sizeof(*sc->extradata_size));
-    if (!sc->extradata_size)
-        return AVERROR(ENOMEM);
+    sc->extradata_size = av_mallocz_array(entries, sizeof(*sc->extradata_size));
+    if (!sc->extradata_size) {
+        ret = AVERROR(ENOMEM);
+        goto fail;
+    }
 
-    ret = ff_mov_read_stsd_entries(c, pb, sc->stsd_count);
+    ret = ff_mov_read_stsd_entries(c, pb, entries);
     if (ret < 0)
-        return ret;
+        goto fail;
+
+    sc->stsd_count = entries;
 
     /* Restore back the primary extradata. */
     av_free(st->codecpar->extradata);
     st->codecpar->extradata_size = sc->extradata_size[0];
     st->codecpar->extradata = av_mallocz(sc->extradata_size[0] + AV_INPUT_BUFFER_PADDING_SIZE);
-    if (!st->codecpar->extradata)
-        return AVERROR(ENOMEM);
+    if (!st->codecpar->extradata) {
+        ret = AVERROR(ENOMEM);
+        goto fail;
+    }
     memcpy(st->codecpar->extradata, sc->extradata[0], sc->extradata_size[0]);
 
-    return 0;
+    return mov_finalize_stsd_codec(c, pb, st, sc);
+fail:
+    av_freep(&sc->extradata);
+    av_freep(&sc->extradata_size);
+    return ret;
 }
 
 static int mov_read_stsc(MOVContext *c, AVIOContext *pb, MOVAtom atom)

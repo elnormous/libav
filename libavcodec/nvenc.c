@@ -28,12 +28,7 @@
 
 #define CUDA_LIBNAME "libcuda.so"
 
-#if HAVE_DLFCN_H
-#include <dlfcn.h>
-
-#define NVENC_LIBNAME "libnvidia-encode.so"
-
-#elif HAVE_WINDOWS_H
+#if HAVE_WINDOWS_H
 #include <windows.h>
 
 #if ARCH_X86_64
@@ -45,6 +40,9 @@
 #define dlopen(filename, flags) LoadLibrary((filename))
 #define dlsym(handle, symbol)   GetProcAddress(handle, symbol)
 #define dlclose(handle)         FreeLibrary(handle)
+#else
+#include <dlfcn.h>
+#define NVENC_LIBNAME "libnvidia-encode.so"
 #endif
 
 #include "libavutil/common.h"
@@ -874,6 +872,44 @@ static int nvenc_setup_codec_config(AVCodecContext *avctx)
     return 0;
 }
 
+static int nvenc_recalc_surfaces(AVCodecContext *avctx)
+{
+    NVENCContext *ctx = avctx->priv_data;
+    // default minimum of 4 surfaces
+    // multiply by 2 for number of NVENCs on gpu (hardcode to 2)
+    // another multiply by 2 to avoid blocking next PBB group
+    int nb_surfaces = FFMAX(4, ctx->config.frameIntervalP * 2 * 2);
+
+    // lookahead enabled
+    if (ctx->rc_lookahead > 0) {
+        // +1 is to account for lkd_bound calculation later
+        // +4 is to allow sufficient pipelining with lookahead
+        nb_surfaces = FFMAX(1, FFMAX(nb_surfaces, ctx->rc_lookahead + ctx->config.frameIntervalP + 1 + 4));
+        if (nb_surfaces > ctx->nb_surfaces && ctx->nb_surfaces > 0) {
+            av_log(avctx, AV_LOG_WARNING,
+                "Defined rc_lookahead requires more surfaces, "
+                "increasing used surfaces %d -> %d\n",
+                ctx->nb_surfaces, nb_surfaces);
+        }
+        ctx->nb_surfaces = FFMAX(nb_surfaces, ctx->nb_surfaces);
+    } else {
+        if (ctx->config.frameIntervalP > 1 &&
+            ctx->nb_surfaces < nb_surfaces && ctx->nb_surfaces > 0) {
+            av_log(avctx, AV_LOG_WARNING,
+                "Defined b-frame requires more surfaces, "
+                "increasing used surfaces %d -> %d\n",
+                ctx->nb_surfaces, nb_surfaces);
+            ctx->nb_surfaces = FFMAX(ctx->nb_surfaces, nb_surfaces);
+        } else if (ctx->nb_surfaces <= 0)
+            ctx->nb_surfaces = nb_surfaces;
+        // otherwise use user specified value
+    }
+
+    ctx->nb_surfaces = FFMAX(1, FFMIN(MAX_REGISTERED_FRAMES, ctx->nb_surfaces));
+    ctx->async_depth = FFMIN(ctx->async_depth, ctx->nb_surfaces - 1);
+    return 0;
+}
+
 static int nvenc_setup_encoder(AVCodecContext *avctx)
 {
     NVENCContext *ctx               = avctx->priv_data;
@@ -956,6 +992,8 @@ static int nvenc_setup_encoder(AVCodecContext *avctx)
     ctx->initial_pts[0] = AV_NOPTS_VALUE;
     ctx->initial_pts[1] = AV_NOPTS_VALUE;
 
+    nvenc_recalc_surfaces(avctx);
+
     nvenc_setup_rate_control(avctx);
 
     if (avctx->flags & AV_CODEC_FLAG_INTERLACED_DCT) {
@@ -986,6 +1024,7 @@ static int nvenc_alloc_surface(AVCodecContext *avctx, int idx)
 {
     NVENCContext *ctx               = avctx->priv_data;
     NV_ENCODE_API_FUNCTION_LIST *nv = &ctx->nvel.nvenc_funcs;
+    NVENCFrame *tmp_surface         = &ctx->frames[idx];
     int ret;
     NV_ENC_CREATE_BITSTREAM_BUFFER out_buffer = { 0 };
 
@@ -1046,6 +1085,8 @@ static int nvenc_alloc_surface(AVCodecContext *avctx, int idx)
 
     ctx->frames[idx].out  = out_buffer.bitstreamBuffer;
 
+    av_fifo_generic_write(ctx->unused_surface_queue, &tmp_surface, sizeof(tmp_surface), NULL);
+
     return 0;
 }
 
@@ -1054,17 +1095,15 @@ static int nvenc_setup_surfaces(AVCodecContext *avctx)
     NVENCContext *ctx = avctx->priv_data;
     int i, ret;
 
-    ctx->nb_surfaces = FFMAX(4 + avctx->max_b_frames,
-                             ctx->nb_surfaces);
-    ctx->async_depth = FFMIN(ctx->async_depth, ctx->nb_surfaces - 1);
-
-
     ctx->frames = av_mallocz_array(ctx->nb_surfaces, sizeof(*ctx->frames));
     if (!ctx->frames)
         return AVERROR(ENOMEM);
 
     ctx->timestamps = av_fifo_alloc(ctx->nb_surfaces * sizeof(int64_t));
     if (!ctx->timestamps)
+        return AVERROR(ENOMEM);
+    ctx->unused_surface_queue = av_fifo_alloc(ctx->nb_surfaces * sizeof(NVENCFrame*));
+    if (!ctx->unused_surface_queue)
         return AVERROR(ENOMEM);
     ctx->pending = av_fifo_alloc(ctx->nb_surfaces * sizeof(*ctx->frames));
     if (!ctx->pending)
@@ -1123,6 +1162,7 @@ av_cold int ff_nvenc_encode_close(AVCodecContext *avctx)
     av_fifo_free(ctx->timestamps);
     av_fifo_free(ctx->pending);
     av_fifo_free(ctx->ready);
+    av_fifo_free(ctx->unused_surface_queue);
 
     if (ctx->frames) {
         for (i = 0; i < ctx->nb_surfaces; ++i) {
@@ -1201,16 +1241,14 @@ av_cold int ff_nvenc_encode_init(AVCodecContext *avctx)
 
 static NVENCFrame *get_free_frame(NVENCContext *ctx)
 {
-    int i;
+    NVENCFrame *tmp_surf;
 
-    for (i = 0; i < ctx->nb_surfaces; i++) {
-        if (!ctx->frames[i].locked) {
-            ctx->frames[i].locked = 1;
-            return &ctx->frames[i];
-        }
-    }
+    if (!(av_fifo_size(ctx->unused_surface_queue) > 0))
+        // queue empty
+        return NULL;
 
-    return NULL;
+    av_fifo_generic_read(ctx->unused_surface_queue, &tmp_surf, sizeof(tmp_surf), NULL);
+    return tmp_surf;
 }
 
 static int nvenc_copy_frame(NV_ENC_LOCK_INPUT_BUFFER *in, const AVFrame *frame)
@@ -1510,7 +1548,7 @@ static int nvenc_get_output(AVCodecContext *avctx, AVPacket *pkt)
         frame->in = NULL;
     }
 
-    frame->locked = 0;
+    av_fifo_generic_write(ctx->unused_surface_queue, &frame, sizeof(frame), NULL);
 
     ret = nvenc_set_timestamp(avctx, &params, pkt);
     if (ret < 0)

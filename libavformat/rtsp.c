@@ -1998,7 +1998,9 @@ static int udp_read_packet(AVFormatContext *s, RTSPStream **prtsp_st,
             }
 #if CONFIG_RTSP_DEMUXER
             if (rt->rtsp_hd && p[0].revents & POLLIN) {
-                return parse_rtsp_message(s);
+                if ((ret = parse_rtsp_message(s)) < 0) {
+                    return ret;
+                }
             }
 #endif
         } else if (n == 0 && ++timeout_cnt >= MAX_TIMEOUTS) {
@@ -2077,7 +2079,7 @@ static int read_packet(AVFormatContext *s,
             wait_end && wait_end < av_gettime_relative())
             len = AVERROR(EAGAIN);
         else
-            len = ffio_read_partial(s->pb, rt->recvbuf, RECVBUF_SIZE);
+            len = avio_read_partial(s->pb, rt->recvbuf, RECVBUF_SIZE);
         len = pick_stream(s, rtsp_st, rt->recvbuf, len);
         if (len > 0 && (*rtsp_st)->transport_priv && rt->transport == RTSP_TRANSPORT_RTP)
             ff_rtp_check_and_send_back_rr((*rtsp_st)->transport_priv, NULL, s->pb, len);
