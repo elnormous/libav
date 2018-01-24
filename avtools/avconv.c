@@ -2201,7 +2201,7 @@ static int init_output_stream(OutputStream *ost, char *error, int error_len)
         if (auto_gop || auto_fps)
         {
             if (ist->st->avg_frame_rate.num && ist->st->avg_frame_rate.den) {
-                double fps = round(av_q2d(ist->st->avg_frame_rate) * 1000) / 1000;
+                double fps = av_q2d(ist->st->avg_frame_rate);
 
                 if (auto_gop) {
                     int gop = (int)fps;
