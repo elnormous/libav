@@ -791,6 +791,7 @@ typedef struct AVStream {
      */
     int event_flags;
 #define AVSTREAM_EVENT_FLAG_METADATA_UPDATED 0x0001 ///< The call resulted in updated metadata.
+#define AVSTREAM_EVENT_FLAG_STREAM_INITIALISED 0x1000 ///< The call resulted in updated metadata.
 
     /*
      * Codec parameters associated with this stream. Allocated and freed by
