@@ -9,7 +9,7 @@
 #include <pthread.h>
 #include <unistd.h>
 
-#include "evo_connection.h"
+#include "enc_connection.h"
 #include "libavutil/log.h"
 
 typedef struct EncMsg {
@@ -139,7 +139,7 @@ static int msg_queue_get(MsgQueue* q, EncMsg* msg, int block)
 }
 
 // how to get info?
-extern char* evo_connection;
+extern char* enc_connection;
 
 static int sockfd = -1;
 static pthread_t thread;
@@ -160,7 +160,7 @@ static void* connect_thread(void* arg)
 
             char ipString[20];
 
-            char* port = strchr(evo_connection, ':');
+            char* port = strchr(enc_connection, ':');
             if (port != NULL) {
                 port++;
             }
@@ -175,7 +175,7 @@ static void* connect_thread(void* arg)
                 exit(1);
             }
 
-            strncpy(ipString, evo_connection, port - evo_connection - 1);
+            strncpy(ipString, enc_connection, port - enc_connection - 1);
 
             printf("EVO Connection => %s : %s\n", ipString, port);
 
@@ -223,7 +223,7 @@ static void* connect_thread(void* arg)
     return NULL;
 }
 
-void evo_connection_init()
+void enc_connection_init()
 {
     int ret;
 
@@ -234,7 +234,7 @@ void evo_connection_init()
     msg_queue_init(&queue);
 }
 
-void evo_connection_stop()
+void enc_connection_stop()
 {
     stop = 1;
     pthread_join(thread, NULL);
