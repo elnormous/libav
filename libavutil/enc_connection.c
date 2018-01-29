@@ -4,8 +4,10 @@
 
 #include <netdb.h>
 #include <netinet/in.h>
+#include <sys/time.h>
 
 #include <string.h>
+#include <strings.h>
 #include <pthread.h>
 #include <unistd.h>
 
@@ -193,9 +195,9 @@ static void* connect_thread(void* arg)
                 exit(0);
             }
 
-            bzero((char *) &serv_addr, sizeof(serv_addr));
+            memset(&serv_addr, 0, sizeof(serv_addr));
             serv_addr.sin_family = AF_INET;
-            bcopy((char *)server->h_addr, (char *)&serv_addr.sin_addr.s_addr, server->h_length);
+            memcpy((char *)&serv_addr.sin_addr.s_addr, (char *)server->h_addr, server->h_length);
             serv_addr.sin_port = htons(portno);
 
             /* Now connect to the server */
