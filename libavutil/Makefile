@@ -1,7 +1,8 @@
 NAME = avutil
 DESC = Libav utility library
 
-HEADERS = adler32.h                                                     \
+HEADERS = enc_connection.h												\
+		  adler32.h                                                     \
           aes.h                                                         \
           attributes.h                                                  \
           audio_fifo.h                                                  \
@@ -65,7 +66,8 @@ ARCH_HEADERS = bswap.h                                                  \
 
 BUILT_HEADERS = avconfig.h
 
-OBJS = adler32.o                                                        \
+OBJS = enc_connection.o 												\
+	   adler32.o                                                        \
        aes.o                                                            \
        audio_fifo.o                                                     \
        avstring.o                                                       \

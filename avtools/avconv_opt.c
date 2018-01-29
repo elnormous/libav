@@ -22,7 +22,6 @@
 
 #include "avconv.h"
 #include "cmdutils.h"
-#include "enc_connection.h"
 
 #include "libavformat/avformat.h"
 
@@ -30,6 +29,7 @@
 
 #include "libavfilter/avfilter.h"
 
+#include "libavutil/enc_connection.h"
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
 #include "libavutil/avutil.h"
@@ -93,7 +93,7 @@ static int intra_dc_precision = 8;
 static int using_stdin        = 0;
 static int input_sync;
 
-char* enc_connection = NULL;
+extern char* enc_connection;
 
 static void uninit_options(OptionsContext *o)
 {
@@ -2541,7 +2541,7 @@ const OptionDef options[] = {
                         OPT_INPUT | OPT_OUTPUT,                      { .off       = OFFSET(format) },
         "force format", "fmt" },
     { "enc_connection", HAS_ARG | OPT_STRING, { &enc_connection },
-        "evo tools ip and port", "enc_connection" },
+        "enc tools ip and port", "enc_connection" },
     { "y",              OPT_BOOL,                                    {              &file_overwrite },
         "overwrite output files" },
     { "n",              OPT_BOOL,                                    {              &file_skip },

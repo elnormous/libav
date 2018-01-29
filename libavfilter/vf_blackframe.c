@@ -33,6 +33,8 @@
 #include "libavutil/internal.h"
 #include "libavutil/opt.h"
 
+#include "libavutil/enc_connection.h"
+
 #include "avfilter.h"
 #include "formats.h"
 #include "internal.h"
@@ -73,10 +75,15 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
     }
 
     pblack = s->nblack * 100 / (inlink->w * inlink->h);
-    if (pblack >= s->bamount)
-        av_log(ctx, AV_LOG_INFO, "frame:%u pblack:%u pts:%"PRId64" t:%f\n",
-               s->frame, pblack, frame->pts,
-               frame->pts == AV_NOPTS_VALUE ? -1 : frame->pts * av_q2d(inlink->time_base));
+    if (pblack >= s->bamount) {
+        char msg[250];
+        sprintf(msg, "frame:%u pblack:%u pts:%"PRId64" t:%f\n", s->frame, pblack, frame->pts,
+                frame->pts == AV_NOPTS_VALUE ? -1 : frame->pts * av_q2d(inlink->time_base));
+
+        av_log(ctx, AV_LOG_INFO, msg);
+
+        enc_send(ENC_MSG_BLACK_FRAME, msg);
+    }
 
     s->frame++;
     s->nblack = 0;

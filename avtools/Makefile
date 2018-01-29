@@ -9,7 +9,7 @@ AVBASENAMES = avconv avplay avprobe
 ALLAVPROGS  = $(AVBASENAMES:%=%$(EXESUF))
 
 OBJS-avconv                   += avtools/avconv_opt.o avtools/avconv_filter.o \
-                                 avtools/avconv_hw.o avtools/evo_connection.o
+                                 avtools/avconv_hw.o                                 
 OBJS-avconv-$(CONFIG_LIBMFX)  += avtools/avconv_qsv.o
 OBJS-avconv-$(CONFIG_VDA)     += avtools/avconv_vda.o
 

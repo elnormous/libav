@@ -9,7 +9,7 @@
 #include <pthread.h>
 #include <unistd.h>
 
-#include "enc_connection.h"
+#include "libavutil/enc_connection.h"
 #include "libavutil/log.h"
 
 typedef struct EncMsg {
@@ -139,7 +139,7 @@ static int msg_queue_get(MsgQueue* q, EncMsg* msg, int block)
 }
 
 // how to get info?
-extern char* enc_connection;
+char* enc_connection = NULL;
 
 static int sockfd = -1;
 static pthread_t thread;
@@ -150,13 +150,15 @@ static MsgQueue queue;
 static void* connect_thread(void* arg)
 {
     EncMsg* msg = malloc(sizeof(EncMsg));
+    char buf[256];
 
     while (!stop) {
         // connect to encoder tools
-        if (sockfd < 0) {
+        if (sockfd <= 0) {
             int portno;
             struct sockaddr_in serv_addr;
             struct hostent *server;
+            struct timeval tv;
 
             char ipString[20];
 
@@ -170,14 +172,19 @@ static void* connect_thread(void* arg)
             /* Create a socket point */
             sockfd = socket(AF_INET, SOCK_STREAM, 0);
 
+            tv.tv_sec = 0;
+            tv.tv_usec = 100;
+            setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+
             if (sockfd < 0) {
-                av_log(NULL, AV_LOG_ERROR, "ERROR opening socket");
-                exit(1);
+                av_log(NULL, AV_LOG_ERROR, "ERROR opening socket\n");
+                usleep(100000);
+                continue;
             }
 
             strncpy(ipString, enc_connection, port - enc_connection - 1);
 
-            printf("EVO Connection => %s : %s\n", ipString, port);
+            printf("ENC Connection => %s : %s\n", ipString, port);
 
             server = gethostbyname(ipString);
 
@@ -193,13 +200,23 @@ static void* connect_thread(void* arg)
 
             /* Now connect to the server */
             if (connect(sockfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr)) < 0) {
-                av_log(NULL, AV_LOG_ERROR, "ERROR connecting");
-                exit(1);
+                av_log(NULL, AV_LOG_ERROR, "ERROR connecting ENC\n");
+                close(sockfd);
+                sockfd = -1;
+                usleep(1000000);
+                continue;
             }
+
+            av_log(NULL, AV_LOG_WARNING, "ENC Connected\n");
+        }
+
+        if (read(sockfd, buf, sizeof(buf)-1) == 0) {
+            av_log(NULL, AV_LOG_WARNING, "ENC Disconnected\n");
+            close(sockfd);
+            sockfd = -1;
         }
 
         if (msg_queue_get(&queue, msg, 0) == 0) {
-
             int suc = 1;
             uint16_t n = 4 + strlen(msg->msg) + 1;
 
@@ -208,7 +225,7 @@ static void* connect_thread(void* arg)
             suc = suc && (write(sockfd, msg->msg, strlen(msg->msg)+1) >= 0);
 
             if (n < 0) {
-                av_log(NULL, AV_LOG_ERROR, "ERROR writing to socket");
+                av_log(NULL, AV_LOG_ERROR, "ERROR writing to socket\n");
                 sockfd = -1;
             }
 
@@ -227,27 +244,33 @@ void enc_connection_init()
 {
     int ret;
 
-    if ((ret = pthread_create(&thread, NULL, connect_thread, NULL))) {
-        av_log(NULL, AV_LOG_ERROR, "Can not create evo connection thread\n");
-    }
+    if (enc_connection != NULL) {
+        if ((ret = pthread_create(&thread, NULL, connect_thread, NULL))) {
+            av_log(NULL, AV_LOG_ERROR, "Can not create enc connection thread\n");
+        }
 
-    msg_queue_init(&queue);
+        msg_queue_init(&queue);
+    }
 }
 
 void enc_connection_stop()
 {
-    stop = 1;
-    pthread_join(thread, NULL);
-    msg_queue_end(&queue);
+    if (enc_connection != NULL) {
+        stop = 1;
+        pthread_join(thread, NULL);
+        msg_queue_end(&queue);
+    }
 }
 
-void evo_send(int type, const char* message)
+void enc_send(int type, const char* message)
 {
-    EncMsg* msg = malloc(sizeof(EncMsg));
-    if (msg) {
-        msg->msg = malloc(strlen(message) + 1);
-        memcpy(msg->msg, message, strlen(message) + 1);
-        msg->type = type;
-        msg_queue_put(&queue, msg, type);
+    if (enc_connection != NULL) {
+        EncMsg* msg = malloc(sizeof(EncMsg));
+        if (msg) {
+            msg->msg = malloc(strlen(message) + 1);
+            memcpy(msg->msg, message, strlen(message) + 1);
+            msg->type = type;
+            msg_queue_put(&queue, msg, type);
+        }
     }
 }

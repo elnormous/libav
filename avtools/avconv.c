@@ -48,6 +48,7 @@
 #include "libavutil/libm.h"
 #include "libavutil/imgutils.h"
 #include "libavutil/time.h"
+
 #include "libavformat/os_support.h"
 
 # include "libavfilter/avfilter.h"
@@ -78,8 +79,8 @@
 
 #include "avconv.h"
 #include "cmdutils.h"
-#include "enc_connection.h"
 
+#include "libavutil/enc_connection.h"
 #include "libavutil/avassert.h"
 
 const char program_name[] = "avconv";
@@ -3245,6 +3246,7 @@ int main(int argc, char **argv)
         exit_program(1);
 
     enc_connection_init();
+    enc_send(ENC_MSG_LOG, "ENC started");
 
     if (nb_output_files <= 0 && nb_input_files == 0) {
         show_usage();
