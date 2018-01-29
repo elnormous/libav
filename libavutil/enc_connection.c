@@ -197,7 +197,7 @@ static void* connect_thread(void* arg)
 
             memset(&serv_addr, 0, sizeof(serv_addr));
             serv_addr.sin_family = AF_INET;
-            memcpy((char *)&serv_addr.sin_addr.s_addr, (char *)server->h_addr, server->h_length);
+            memcpy((char *)&serv_addr.sin_addr.s_addr, (char *)server->h_addr_list[0], server->h_length);
             serv_addr.sin_port = htons(portno);
 
             /* Now connect to the server */
