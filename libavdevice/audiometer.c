@@ -4,6 +4,7 @@
  *
  */
 
+#include <assert.h>
 #include <sys/socket.h>
 #include <netdb.h>
 #include <unistd.h>
@@ -38,6 +39,7 @@ static av_cold int audiometer_write_header(AVFormatContext *s1)
     s->fd = -1;
 
     st = s1->streams[0];
+    assert(st->codec_type == AVMEDIA_TYPE_AUDIO);
     s->codec_id = codec_id = st->codecpar->codec_id;
     s->channels = st->codecpar->channels;
     s->time_base = st->time_base;
