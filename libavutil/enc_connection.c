@@ -221,12 +221,12 @@ static void* connect_thread(void* arg)
 
         if (msg_queue_get(&queue, msg, 0) == 0) {
             int suc = 1;
-            uint16_t n = ntohs(2 + strlen(msg->msg) + 1);
+            uint16_t n = ntohs(2 + strlen(msg->msg));
             uint16_t swappedType = ntohs(msg->type);
 
             suc = suc && (write(sockfd, &n, 2) >= 0);
             suc = suc && (write(sockfd, &swappedType, 2) >= 0);
-            suc = suc && (write(sockfd, msg->msg, strlen(msg->msg)+1) >= 0);
+            suc = suc && (write(sockfd, msg->msg, strlen(msg->msg)) >= 0);
 
             if (n < 0) {
                 av_log(NULL, AV_LOG_ERROR, "ERROR writing to socket\n");
