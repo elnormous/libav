@@ -4,6 +4,7 @@
 
 #include <netdb.h>
 #include <netinet/in.h>
+#include <arpa/inet.h>
 #include <sys/time.h>
 
 #include <string.h>
@@ -220,10 +221,11 @@ static void* connect_thread(void* arg)
 
         if (msg_queue_get(&queue, msg, 0) == 0) {
             int suc = 1;
-            uint16_t n = 2 + strlen(msg->msg) + 1;
+            uint16_t n = ntohs(2 + strlen(msg->msg) + 1);
+            uint16_t swappedType = ntohs(msg->type);
 
             suc = suc && (write(sockfd, &n, 2) >= 0);
-            suc = suc && (write(sockfd, &msg->type, 2) >= 0);
+            suc = suc && (write(sockfd, &swappedType, 2) >= 0);
             suc = suc && (write(sockfd, msg->msg, strlen(msg->msg)+1) >= 0);
 
             if (n < 0) {
