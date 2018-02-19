@@ -1,7 +1,8 @@
 NAME = avutil
 DESC = Libav utility library
 
-HEADERS = adler32.h                                                     \
+HEADERS = enc_connection.h												\
+		  adler32.h                                                     \
           aes.h                                                         \
           attributes.h                                                  \
           audio_fifo.h                                                  \
@@ -27,6 +28,7 @@ HEADERS = adler32.h                                                     \
           hmac.h                                                        \
           hwcontext.h                                                   \
           hwcontext_cuda.h                                              \
+          hwcontext_d3d11va.h                                           \
           hwcontext_dxva2.h                                             \
           hwcontext_qsv.h                                               \
           hwcontext_vaapi.h                                             \
@@ -64,7 +66,8 @@ ARCH_HEADERS = bswap.h                                                  \
 
 BUILT_HEADERS = avconfig.h
 
-OBJS = adler32.o                                                        \
+OBJS = enc_connection.o 												\
+	   adler32.o                                                        \
        aes.o                                                            \
        audio_fifo.o                                                     \
        avstring.o                                                       \
@@ -112,6 +115,7 @@ OBJS = adler32.o                                                        \
        xtea.o                                                           \
 
 OBJS-$(CONFIG_CUDA)                     += hwcontext_cuda.o
+OBJS-$(CONFIG_D3D11VA)                  += hwcontext_d3d11va.o
 OBJS-$(CONFIG_DXVA2)                    += hwcontext_dxva2.o
 OBJS-$(CONFIG_LIBMFX)                   += hwcontext_qsv.o
 OBJS-$(CONFIG_LZO)                      += lzo.o
@@ -121,6 +125,7 @@ OBJS-$(CONFIG_VDPAU)                    += hwcontext_vdpau.o
 OBJS += $(COMPAT_OBJS:%=../compat/%)
 
 SKIPHEADERS-$(CONFIG_CUDA)             += hwcontext_cuda.h
+SKIPHEADERS-$(CONFIG_D3D11VA)          += hwcontext_d3d11va.h
 SKIPHEADERS-$(CONFIG_DXVA2)            += hwcontext_dxva2.h
 SKIPHEADERS-$(CONFIG_LIBMFX)           += hwcontext_qsv.h
 SKIPHEADERS-$(CONFIG_VAAPI)            += hwcontext_vaapi.h

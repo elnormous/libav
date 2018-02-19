@@ -60,11 +60,9 @@
 enum HWAccelID {
     HWACCEL_NONE = 0,
     HWACCEL_AUTO,
-    HWACCEL_VDPAU,
-    HWACCEL_DXVA2,
+    HWACCEL_GENERIC,
     HWACCEL_VDA,
     HWACCEL_QSV,
-    HWACCEL_VAAPI,
 };
 
 typedef struct HWAccel {
@@ -72,7 +70,6 @@ typedef struct HWAccel {
     int (*init)(AVCodecContext *s);
     enum HWAccelID id;
     enum AVPixelFormat pix_fmt;
-    enum AVHWDeviceType device_type;
 } HWAccel;
 
 typedef struct HWDevice {
@@ -308,11 +305,11 @@ typedef struct InputStream {
 
     /* hwaccel options */
     enum HWAccelID hwaccel_id;
+    enum AVHWDeviceType hwaccel_device_type;
     char  *hwaccel_device;
     enum AVPixelFormat hwaccel_output_format;
 
     /* hwaccel context */
-    enum HWAccelID active_hwaccel_id;
     void  *hwaccel_ctx;
     void (*hwaccel_uninit)(AVCodecContext *s);
     int  (*hwaccel_get_buffer)(AVCodecContext *s, AVFrame *frame, int flags);
@@ -517,6 +514,7 @@ extern const OptionDef options[];
 extern const HWAccel hwaccels[];
 extern int hwaccel_lax_profile_check;
 extern AVBufferRef *hw_device_ctx;
+extern HWDevice *filter_hw_device;
 
 void reset_options(OptionsContext *o);
 void show_usage(void);

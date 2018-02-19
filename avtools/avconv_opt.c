@@ -29,6 +29,7 @@
 
 #include "libavfilter/avfilter.h"
 
+#include "libavutil/enc_connection.h"
 #include "libavutil/avassert.h"
 #include "libavutil/avstring.h"
 #include "libavutil/avutil.h"
@@ -56,30 +57,17 @@
 }
 
 const HWAccel hwaccels[] = {
-#if HAVE_VDPAU_X11
-    { "vdpau", hwaccel_decode_init, HWACCEL_VDPAU, AV_PIX_FMT_VDPAU,
-      AV_HWDEVICE_TYPE_VDPAU },
-#endif
-#if HAVE_DXVA2_LIB
-    { "dxva2", dxva2_init, HWACCEL_DXVA2, AV_PIX_FMT_DXVA2_VLD,
-      AV_HWDEVICE_TYPE_NONE },
-#endif
 #if CONFIG_VDA
-    { "vda",   vda_init,   HWACCEL_VDA,   AV_PIX_FMT_VDA,
-      AV_HWDEVICE_TYPE_NONE },
+    { "vda",   vda_init,   HWACCEL_VDA,   AV_PIX_FMT_VDA },
 #endif
 #if CONFIG_LIBMFX
-    { "qsv",   qsv_init,   HWACCEL_QSV,   AV_PIX_FMT_QSV,
-      AV_HWDEVICE_TYPE_NONE },
-#endif
-#if CONFIG_VAAPI
-    { "vaapi", hwaccel_decode_init, HWACCEL_VAAPI, AV_PIX_FMT_VAAPI,
-      AV_HWDEVICE_TYPE_VAAPI },
+    { "qsv",   qsv_init,   HWACCEL_QSV,   AV_PIX_FMT_QSV },
 #endif
     { 0 },
 };
 int hwaccel_lax_profile_check = 0;
 AVBufferRef *hw_device_ctx;
+HWDevice *filter_hw_device;
 
 char *vstats_filename;
 
@@ -104,6 +92,8 @@ static int video_discard      = 0;
 static int intra_dc_precision = 8;
 static int using_stdin        = 0;
 static int input_sync;
+
+extern char* enc_connection;
 
 static void uninit_options(OptionsContext *o)
 {
@@ -192,12 +182,15 @@ static double parse_frame_aspect_ratio(const char *arg)
 
 static int show_hwaccels(void *optctx, const char *opt, const char *arg)
 {
+    enum AVHWDeviceType type = AV_HWDEVICE_TYPE_NONE;
     int i;
 
     printf("Supported hardware acceleration:\n");
-    for (i = 0; hwaccels[i].name; i++) {
+    while ((type = av_hwdevice_iterate_types(type)) !=
+           AV_HWDEVICE_TYPE_NONE)
+        printf("%s\n", av_hwdevice_get_type_name(type));
+    for (i = 0; hwaccels[i].name; i++)
         printf("%s\n", hwaccels[i].name);
-    }
     printf("\n");
     return 0;
 }
@@ -367,6 +360,20 @@ static int opt_init_hw_device(void *optctx, const char *opt, const char *arg)
     } else {
         return hw_device_init_from_string(arg, NULL);
     }
+}
+
+static int opt_filter_hw_device(void *optctx, const char *opt, const char *arg)
+{
+    if (filter_hw_device) {
+        av_log(NULL, AV_LOG_ERROR, "Only one filter device can be used.\n");
+        return AVERROR(EINVAL);
+    }
+    filter_hw_device = hw_device_get_by_name(arg);
+    if (!filter_hw_device) {
+        av_log(NULL, AV_LOG_ERROR, "Invalid filter device %s.\n", arg);
+        return AVERROR(EINVAL);
+    }
+    return 0;
 }
 
 /**
@@ -600,6 +607,7 @@ static void add_input_streams(OptionsContext *o, AVFormatContext *ic)
                 else if (!strcmp(hwaccel, "auto"))
                     ist->hwaccel_id = HWACCEL_AUTO;
                 else {
+                    enum AVHWDeviceType type;
                     int i;
                     for (i = 0; hwaccels[i].name; i++) {
                         if (!strcmp(hwaccels[i].name, hwaccel)) {
@@ -609,9 +617,22 @@ static void add_input_streams(OptionsContext *o, AVFormatContext *ic)
                     }
 
                     if (!ist->hwaccel_id) {
+                        type = av_hwdevice_find_type_by_name(hwaccel);
+                        if (type != AV_HWDEVICE_TYPE_NONE) {
+                            ist->hwaccel_id = HWACCEL_GENERIC;
+                            ist->hwaccel_device_type = type;
+                        }
+                    }
+
+                    if (!ist->hwaccel_id) {
                         av_log(NULL, AV_LOG_FATAL, "Unrecognized hwaccel: %s.\n",
                                hwaccel);
                         av_log(NULL, AV_LOG_FATAL, "Supported hwaccels: ");
+                        type = AV_HWDEVICE_TYPE_NONE;
+                        while ((type = av_hwdevice_iterate_types(type)) !=
+                               AV_HWDEVICE_TYPE_NONE)
+                            av_log(NULL, AV_LOG_FATAL, "%s ",
+                                   av_hwdevice_get_type_name(type));
                         for (i = 0; hwaccels[i].name; i++)
                             av_log(NULL, AV_LOG_FATAL, "%s ", hwaccels[i].name);
                         av_log(NULL, AV_LOG_FATAL, "\n");
@@ -2519,6 +2540,8 @@ const OptionDef options[] = {
     { "f",              HAS_ARG | OPT_STRING | OPT_OFFSET |
                         OPT_INPUT | OPT_OUTPUT,                      { .off       = OFFSET(format) },
         "force format", "fmt" },
+    { "enc_connection", HAS_ARG | OPT_STRING, { &enc_connection },
+        "enc tools ip and port", "enc_connection" },
     { "y",              OPT_BOOL,                                    {              &file_overwrite },
         "overwrite output files" },
     { "n",              OPT_BOOL,                                    {              &file_skip },
@@ -2775,6 +2798,8 @@ const OptionDef options[] = {
 
     { "init_hw_device", HAS_ARG | OPT_EXPERT, { .func_arg = opt_init_hw_device },
         "initialise hardware device", "args" },
+    { "filter_hw_device", HAS_ARG | OPT_EXPERT, { .func_arg = opt_filter_hw_device },
+        "set hardware device used when filtering", "device" },
 
     { NULL, },
 };

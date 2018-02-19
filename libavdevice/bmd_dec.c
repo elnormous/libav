@@ -253,6 +253,7 @@ typedef struct {
     int64_t         queue_size;
     int64_t         last_time;
     int64_t         start_time;
+    int             streams_ready;
 } BMDCaptureContext;
 
 static AVStream *add_audio_stream(AVFormatContext *oc, DecklinkConf *conf)
@@ -395,6 +396,12 @@ static int put_wallclock_packet(BMDCaptureContext *ctx, int64_t pts)
     int size;
     int ret;
 
+    if (ctx->video_st->event_flags & AVSTREAM_EVENT_FLAG_STREAM_INITIALISED) {
+        ctx->video_st->event_flags &= ~AVSTREAM_EVENT_FLAG_STREAM_INITIALISED;
+        ctx->streams_ready = 1;
+        packet_queue_flush(&ctx->q);
+    }
+
     size = snprintf(buf, sizeof(buf), "%" PRId64, av_gettime()) + 1;
 
     ret = av_new_packet(&pkt, size);
@@ -408,7 +415,7 @@ static int put_wallclock_packet(BMDCaptureContext *ctx, int64_t pts)
     pkt.pts = pkt.dts = pts;
     pkt.stream_index  = ctx->data_st->index;
 
-    if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
+    if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0 && ctx->streams_ready) {
         av_log(NULL, AV_LOG_WARNING, "no space in queue, data frame dropped.\n");
         ctx->data_st->dropped_frames++;
     }
@@ -426,6 +433,18 @@ static int video_callback(void *priv, uint8_t *frame,
     AVCodecParameters *c = ctx->video_st->codecpar;
     AVPacket pkt;
     int ret, pkt_size;
+
+    if (ctx->video_st->event_flags & AVSTREAM_EVENT_FLAG_STREAM_INITIALISED) {
+        ctx->video_st->event_flags &= ~AVSTREAM_EVENT_FLAG_STREAM_INITIALISED;
+        ctx->streams_ready = 1;
+        packet_queue_flush(&ctx->q);
+    }
+
+    ret = av_new_packet(&pkt, stride * height);
+
+    if (ret != 0) {
+        return ret;
+    }
 
     if (ctx->start_time == AV_NOPTS_VALUE) {
         int64_t* time_data;
@@ -463,7 +482,6 @@ static int video_callback(void *priv, uint8_t *frame,
             memcpy(pkt.buf->data, frame, pkt_size);
     }
 
-
     pkt.pts = pkt.dts = timestamp / ctx->video_st->time_base.num;
     pkt.duration      = duration  / ctx->video_st->time_base.num;
 
@@ -474,9 +492,9 @@ static int video_callback(void *priv, uint8_t *frame,
         put_wallclock_packet(ctx, pkt.pts);
     }
 
-    if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
+    if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0 && ctx->streams_ready) {
         av_log(NULL, AV_LOG_WARNING, "no space in queue, video frame dropped.\n");
-        ctx->video_st->dropped_frames++;
+        ctx->audio_st->dropped_frames++;
     }
 
     return 0;
@@ -492,6 +510,12 @@ static int audio_callback(void *priv, uint8_t *frame,
     AVPacket pkt;
     int ret;
 
+    if (ctx->video_st->event_flags & AVSTREAM_EVENT_FLAG_STREAM_INITIALISED) {
+        ctx->video_st->event_flags &= ~AVSTREAM_EVENT_FLAG_STREAM_INITIALISED;
+        ctx->streams_ready = 1;
+        packet_queue_flush(&ctx->q);
+    }
+
     ret = av_new_packet(&pkt, nb_samples * c->channels * (ctx->conf.audio_sample_depth / 8));
 
     if (ret != 0) {
@@ -505,7 +529,7 @@ static int audio_callback(void *priv, uint8_t *frame,
     pkt.flags        |= AV_PKT_FLAG_KEY;
     pkt.stream_index  = ctx->audio_st->index;
 
-    if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
+    if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0 && ctx->streams_ready) {
         av_log(NULL, AV_LOG_WARNING, "no space in queue, audio frame dropped.\n");
         ctx->audio_st->dropped_frames++;
     }
@@ -581,7 +605,7 @@ static const AVOption options[] = {
     { "video_connection", "Video connection",   OD(video_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { "video_format",     "Video pixel format", OD(pixel_format),     AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { "audio_connection", "Audio connection",   OD(audio_connection), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-    { "video_timeout",    "Video timeout (in seconds), 0 to disable the timeout",      OC(timeout),          AV_OPT_TYPE_INT64, {.i64 = 3}, 0, INT_MAX, D },
+    { "video_timeout",    "Video timeout (in seconds), 0 to disable the timeout",      OC(timeout),          AV_OPT_TYPE_INT64, {.i64 = 5}, 0, INT_MAX, D },
     { "queue_size",       "Packet queue size, 0 to disable the queue limit",  OC(queue_size),       AV_OPT_TYPE_INT64, {.i64 = 25}, 0, INT_MAX, D },
     { "wallclock",        "Add the wallclock",  OC(wallclock),        AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { NULL },
