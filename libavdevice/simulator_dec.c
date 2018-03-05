@@ -26,6 +26,7 @@
  */
 
 #include "config.h"
+#include "libavutil/rational.h"
 #include "libavutil/log.h"
 #include "libavutil/opt.h"
 #include "libavutil/pixdesc.h"
@@ -158,62 +159,80 @@ static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block)
 typedef struct {
     const AVClass   *class;    /**< Class for private options. */
 
-    char*           frame_file;
-    uint8_t*        raw_frame;
-    int             frame_size;
+    // options
+    char*           vfile;
+    int             wallclock;
+    int64_t         queue_size;
 
-    int             max_frame_cnt;
+    // decoded
+    AVStream*       decoded_v_stream;
+    AVStream*       decoded_a_stream;
+    AVFrame**       v_frames;
+    int             v_buf_size;
+    int             v_frame_cnt;
+    AVFrame**       a_frames;
+    int             a_buf_size;
+    int             a_frame_cnt;
 
-    pthread_t       v_thread;
-//    pthread_t       a_thread;
+    pthread_t       video_thread;
     int             stop_threads;
-
 
     PacketQueue     q;
     AVStream        *audio_st;
     AVStream        *video_st;
     AVStream        *data_st;
-    int             wallclock;
-    int64_t         timeout;
-    int64_t         queue_size;
+
     int64_t         start_time;
 } SContext;
 
+static enum AVCodecID av_get_pcm_codec(enum AVSampleFormat fmt, int be)
+{
+     static const enum AVCodecID map[AV_SAMPLE_FMT_NB][2] = {
+         [AV_SAMPLE_FMT_U8  ] = { AV_CODEC_ID_PCM_U8,    AV_CODEC_ID_PCM_U8    },
+         [AV_SAMPLE_FMT_S16 ] = { AV_CODEC_ID_PCM_S16LE, AV_CODEC_ID_PCM_S16BE },
+         [AV_SAMPLE_FMT_S32 ] = { AV_CODEC_ID_PCM_S32LE, AV_CODEC_ID_PCM_S32BE },
+         [AV_SAMPLE_FMT_FLT ] = { AV_CODEC_ID_PCM_F32LE, AV_CODEC_ID_PCM_F32BE },
+         [AV_SAMPLE_FMT_DBL ] = { AV_CODEC_ID_PCM_F64LE, AV_CODEC_ID_PCM_F64BE },
+         [AV_SAMPLE_FMT_U8P ] = { AV_CODEC_ID_PCM_U8,    AV_CODEC_ID_PCM_U8    },
+         [AV_SAMPLE_FMT_S16P] = { AV_CODEC_ID_PCM_S16LE, AV_CODEC_ID_PCM_S16BE },
+         [AV_SAMPLE_FMT_S32P] = { AV_CODEC_ID_PCM_S32LE, AV_CODEC_ID_PCM_S32BE },
+         [AV_SAMPLE_FMT_FLTP] = { AV_CODEC_ID_PCM_F32LE, AV_CODEC_ID_PCM_F32BE },
+         [AV_SAMPLE_FMT_DBLP] = { AV_CODEC_ID_PCM_F64LE, AV_CODEC_ID_PCM_F64BE },
+     };
+     if (fmt < 0 || fmt >= AV_SAMPLE_FMT_NB)
+         return AV_CODEC_ID_NONE;
+     if (be < 0 || be > 1)
+         be = AV_NE(1, 0);
+     return map[fmt][be];
+}
+
 static AVStream *add_audio_stream(AVFormatContext *oc)
 {
-//    AVCodecParameters *c;
-//    AVStream *st;
-//
-//    st = avformat_new_stream(oc, NULL);
-//    if (!st)
-//        return NULL;
-//
-//    st->time_base  = (AVRational){1, 48000};
-//
-//    c              = st->codecpar;
-//    c->codec_type  = AVMEDIA_TYPE_AUDIO;
-//    c->sample_rate = 48000;
-//    c->channels    = conf->audio_channels;
-//
-//    switch (conf->audio_sample_depth) {
-//        case 16:
-//            c->format   = AV_SAMPLE_FMT_S16;
-//            c->codec_id = AV_CODEC_ID_PCM_S16LE;
-//            break;
-//        case 32:
-//            c->format   = AV_SAMPLE_FMT_S32;
-//            c->codec_id = AV_CODEC_ID_PCM_S32LE;
-//            break;
-//        default:
-//            av_log(oc, AV_LOG_ERROR,
-//                   "%dbit audio is not supported.\n",
-//                   conf->audio_sample_depth);
-//            return NULL;
-//    }
+    SContext *ctx = oc->priv_data;
+    AVCodecParameters *dc = ctx->decoded_a_stream->codecpar;
+    AVCodecParameters *c;
+    AVStream *st;
 
-//    return st;
+    st = avformat_new_stream(oc, NULL);
+    if (!st)
+        return NULL;
 
-    return NULL;
+    st->time_base  = (AVRational){1, ctx->decoded_a_stream->time_base.den};
+
+    av_log(NULL, AV_LOG_INFO, "ATB: %d %d | SR: %d \n", ctx->decoded_a_stream->time_base.num, ctx->decoded_a_stream->time_base.den, dc->sample_rate);
+
+    c              = st->codecpar;
+    c->codec_type  = AVMEDIA_TYPE_AUDIO;
+
+    c->sample_rate = dc->sample_rate / dc->channels;
+    c->channels    = dc->channels;
+
+    c->format   = dc->format;
+    c->codec_id = av_get_pcm_codec(dc->format, 0);
+
+    av_log(NULL, AV_LOG_INFO, "Format: %d\n", dc->format);
+
+    return st;
 }
 
 static AVStream *add_data_stream(AVFormatContext *oc)
@@ -242,6 +261,9 @@ static AVStream *add_data_stream(AVFormatContext *oc)
 
 static AVStream *add_video_stream(AVFormatContext *oc)
 {
+    SContext *ctx = oc->priv_data;
+    AVCodecParameters *dc = ctx->decoded_v_stream->codecpar;
+
     AVCodecParameters *c;
     AVStream *st;
 
@@ -252,18 +274,14 @@ static AVStream *add_video_stream(AVFormatContext *oc)
     c                = st->codecpar;
     c->codec_type    = AVMEDIA_TYPE_VIDEO;
 
-    c->width         = 1920;
-    c->height        = 1080;
+    c->width         = dc->width;
+    c->height        = dc->height;
 
-    st->time_base.den = 25;
-    st->time_base.num = 1;
+    st->time_base    = ctx->decoded_v_stream->time_base;
+    st->avg_frame_rate = ctx->decoded_v_stream->avg_frame_rate;
 
-    st->avg_frame_rate.num = 25;
-    st->avg_frame_rate.den = 1;
-
-    c->field_order = AV_FIELD_PROGRESSIVE;
-
-    c->format    = AV_PIX_FMT_YUV420P;
+    c->field_order = dc->field_order;
+    c->format    = dc->format;
     c->codec_id  = AV_CODEC_ID_RAWVIDEO;
     c->codec_tag = avcodec_pix_fmt_to_codec_tag(c->format);
 
@@ -276,7 +294,7 @@ static int simulator_read_close(AVFormatContext *s)
 
     ctx->stop_threads = 1;
 
-    pthread_join(ctx->v_thread, NULL);
+    pthread_join(ctx->video_thread, NULL);
 
     packet_queue_end(&ctx->q);
 
@@ -311,189 +329,307 @@ static int put_wallclock_packet(SContext *ctx, int64_t pts)
     return 0;
 }
 
-static void convertRawUYVYtoYUV420P(const uint8_t* srcData,
-                             const int W, const int H, const int stride,
-                             uint8_t* dst)
+static void* video_thread(void *priv)
 {
-    const int YStride = W;
-    const int UVStride = (W + 1) / 2;
-    const int UVRows = (H + 1) / 2;
-
-    uint8_t* Ys = &dst[0];
-    uint8_t* Us = Ys + YStride * H;
-    uint8_t* Vs = Us + UVStride * UVRows;
-
-    const uint8_t* data = srcData;
-    __m128i zeros = _mm_setzero_si128();
-
-    for (int y = 0; y < H; y++)
-    {
-        int x = 0;
-        data = &srcData[y * stride];
-
-        if (y < H - 1) // can't store Us in this way
-            while (x + 7 < UVStride)
-            {
-                __m128i uvs, vs, us;
-                __m128i px1 = _mm_loadu_si128((__m128i*)&data[0]);
-                __m128i ypx1 = _mm_srli_epi16(px1, 8);
-                __m128i px2 = _mm_loadu_si128((__m128i*)&data[16]);
-                __m128i ypx2 = _mm_srli_epi16(px2, 8);
-                _mm_storeu_si128((__m128i*)(Ys), _mm_packus_epi16(ypx1, ypx2));
-
-                // how to get us & vs..
-                ypx1 = _mm_slli_epi16(px1, 8);
-                ypx1 = _mm_srli_epi16(ypx1, 8);
-                ypx2 = _mm_slli_epi16(px2, 8);
-                ypx2 = _mm_srli_epi16(ypx2, 8);
-
-                uvs = _mm_packus_epi16(ypx1, ypx2);
-                vs = _mm_srli_epi16(uvs, 8);
-                us = _mm_slli_epi16(uvs, 8);
-                us = _mm_srli_epi16(us, 8);
-
-                _mm_storeu_si128((__m128i*)(&Us[x]), _mm_packus_epi16(us, zeros));
-                _mm_storeu_si128((__m128i*)(&Vs[x]), _mm_packus_epi16(vs, zeros));
-
-                x += 8;
-                data += 32;
-                Ys += 16;
-            }
-
-        for (; x < UVStride; x++, data += 4, Ys += 2)
-        {
-            Ys[0] = data[1];
-            Ys[1] = data[3];
-            Us[x] = data[0];
-            Vs[x] = data[2];
-        }
-        //        Ys += YStride;
-        Us += UVStride;
-        Vs += UVStride;
-
-        if (++y < H)
-        {
-            int x = 0;
-            data = &srcData[y * stride];
-
-            while (x + 7 < UVStride)
-            {
-                __m128i px1 = _mm_srli_epi16(_mm_loadu_si128((__m128i*)&data[0]), 8);
-                __m128i px2 = _mm_srli_epi16(_mm_loadu_si128((__m128i*)&data[16]), 8);
-                _mm_storeu_si128((__m128i*)(Ys), _mm_packus_epi16(px1, px2));
-
-                x += 8;
-                data += 32;
-                Ys += 16;
-            }
-
-            for (; x < UVStride; x++, data += 4, Ys += 2)
-            {
-                Ys[0] = data[1];
-                Ys[1] = data[3];
-            }
-        }
-    }
-}
-
-static void* video_callback(void *priv)
-{
-    int64_t timestamp = 1;
-
     SContext *ctx = priv;
-    int64_t previous = 0; //av_gettime();
+    uint64_t v_frame_nr = 0, a_frame_nr = 0;
+    int64_t v_pts = 0, a_pts = 0;
+    int64_t start_time = av_gettime();
+    uint64_t video_prev_pts = 0, audio_prev_pts = 0;
 
-    while (!ctx->stop_threads)
     {
-        AVPacket pkt;
-        int ret;
+        int64_t* time_data;
 
-        if (av_gettime() - previous < 40000)
-        {
-            av_usleep(20000);
-            continue;
+        ctx->start_time = av_gettime() / 1000;
+
+        av_log(ctx, AV_LOG_INFO, "simulator start time: %lld\n", ctx->start_time);
+
+        time_data = (int64_t*)av_stream_new_side_data(ctx->video_st, AV_PKT_DATA_STREAM_START_TIME, sizeof(int64_t));
+        if (time_data) {
+            *time_data = ctx->start_time;
         }
-        previous = av_gettime();
-
-        ret = av_new_packet(&pkt, 1920 * 1080 * 1.5);
-
-        if (ret != 0) {
-            return NULL;
-        }
-
-        if (ctx->start_time == AV_NOPTS_VALUE) {
-            int64_t* time_data;
-
-            ctx->start_time = av_gettime() / 1000;
-
-            av_log(NULL, AV_LOG_INFO, "simulator start time: %lld\n", ctx->start_time);
-
-            time_data = (int64_t*)av_stream_new_side_data(ctx->video_st, AV_PKT_DATA_STREAM_START_TIME, sizeof(int64_t));
+        if (ctx->audio_st) {
+            time_data = (int64_t*)av_stream_new_side_data(ctx->audio_st, AV_PKT_DATA_STREAM_START_TIME, sizeof(int64_t));
             if (time_data) {
                 *time_data = ctx->start_time;
             }
-//            time_data = (int64_t*)av_stream_new_side_data(ctx->audio_st, AV_PKT_DATA_STREAM_START_TIME, sizeof(int64_t));
-//            if (time_data) {
-//                *time_data = ctx->start_time;
-//            }
+
+        }
+        if (ctx->data_st) {
             time_data = (int64_t*)av_stream_new_side_data(ctx->data_st, AV_PKT_DATA_STREAM_START_TIME, sizeof(int64_t));
             if (time_data) {
                 *time_data = ctx->start_time;
             }
         }
+    }
 
-        convertRawUYVYtoYUV420P(ctx->raw_frame, 1920, 1080, 1920 * 2, pkt.data);
+//    double tpf = (double)(ctx->video_st->time_base.den * ctx->video_st->avg_frame_rate.den) / (ctx->video_st->time_base.num * ctx->video_st->avg_frame_rate.num);
+//    double tpf = (double)(ctx->video_st->avg_frame_rate.den) * 1000000 / (ctx->video_st->avg_frame_rate.num);
+//    int globalFrame = 0;
 
-        pkt.pts = pkt.dts = timestamp; //timestamp / ctx->video_st->time_base.num;
-        pkt.duration      = 1; //duration  / ctx->video_st->time_base.num;
+//    ctx->video_st->time_base.den / ctx->video_st->time_base.num
 
-        pkt.flags        |= AV_PKT_FLAG_KEY;
-        pkt.stream_index  = ctx->video_st->index;
+    while (!ctx->stop_threads) {
+        int64_t ctime = av_gettime();
+        int produced = 0;
 
-        if (ctx->wallclock) {
-            put_wallclock_packet(ctx, pkt.pts);
+        v_pts = (ctime - start_time) * ctx->video_st->time_base.den / ctx->video_st->time_base.num / 1000000;
+
+        // should add video frame
+//        while (globalFrame <= (int)((ctime - start_time) / tpf))
+        while (v_frame_nr < ctx->v_frame_cnt && ctx->v_frames[v_frame_nr]->pts <= v_pts)
+        {
+            AVPacket pkt;
+            AVFrame* frame = ctx->v_frames[v_frame_nr++];
+//            AVFrame* frame = ctx->v_frames[globalFrame % ctx->v_frame_cnt];
+            const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(frame->format);
+            int ret, i, psize = 0;
+            uint64_t copied = 0;
+
+            for (i = 0; i < 4 && frame->linesize[i]; i++) {
+                int h = frame->height;
+                if (i == 1 || i == 2) h = AV_CEIL_RSHIFT(h, desc->log2_chroma_h);
+                psize += frame->linesize[i] * h;
+            }
+
+            ret = av_new_packet(&pkt, psize);
+            if (ret != 0) {
+                av_log(ctx, AV_LOG_ERROR, "No memory?");
+                return NULL;
+            }
+
+            for (i = 0; i < 4 && frame->linesize[i]; i++) {
+                int h = frame->height;
+                if (i == 1 || i == 2) h = AV_CEIL_RSHIFT(h, desc->log2_chroma_h);
+
+                memcpy(&pkt.data[copied], frame->data[i], frame->linesize[i] * h);
+                copied += frame->linesize[i] * h;
+            }
+
+//            pkt.pts = pkt.dts = globalFrame * ctx->video_st->time_base.den / ctx->video_st->avg_frame_rate.num;
+            pkt.pts = pkt.dts = video_prev_pts + frame->pts;
+            pkt.duration      = 1;
+
+            pkt.flags        |= AV_PKT_FLAG_KEY;
+            pkt.stream_index  = ctx->video_st->index;
+
+            av_log(ctx, AV_LOG_INFO, "V: %d\n", pkt.pts);
+
+            if (ctx->wallclock) {
+                put_wallclock_packet(ctx, pkt.pts);
+            }
+
+            if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
+                av_log(NULL, AV_LOG_WARNING, "no space in queue, video frame dropped.\n");
+                ctx->video_st->dropped_frames++;
+            }
+
+//            globalFrame++;
+            produced = 1;
         }
 
-        if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
-            av_log(NULL, AV_LOG_WARNING, "no space in queue, video frame dropped.\n");
-            ctx->video_st->dropped_frames++;
+        if (ctx->audio_st) {
+            a_pts = (ctime - start_time) * ctx->audio_st->time_base.den / ctx->audio_st->time_base.num / 1000000;
+            while (a_frame_nr < ctx->a_frame_cnt && ctx->a_frames[a_frame_nr]->pts <= a_pts) {
+                AVPacket pkt;
+                int ret;
+
+                AVFrame* frame = ctx->a_frames[a_frame_nr++];
+
+                int sz = av_get_bytes_per_sample(frame->format) * frame->nb_samples;
+
+                ret = av_new_packet(&pkt, sz);
+                if (ret != 0) {
+                    av_log(ctx, AV_LOG_ERROR, "No memory?");
+                    return NULL;
+                }
+
+                memcpy(pkt.buf->data, frame->data[0], sz);
+
+                pkt.dts = pkt.pts = audio_prev_pts + frame->pts;// a_samples;
+                pkt.flags        |= AV_PKT_FLAG_KEY;
+                pkt.stream_index  = ctx->audio_st->index;
+
+                if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
+                    av_log(NULL, AV_LOG_WARNING, "no space in queue, audio frame dropped.\n");
+                    ctx->audio_st->dropped_frames++;
+                }
+
+                produced = 1;
+            }
         }
 
-        timestamp++;
+        if (v_frame_nr >= ctx->v_frame_cnt)
+        {
+            video_prev_pts += ctx->v_frames[ctx->v_frame_cnt-1]->pts + // add one frame
+                (ctx->video_st->time_base.den * ctx->video_st->avg_frame_rate.den) / (ctx->video_st->time_base.num * ctx->video_st->avg_frame_rate.num);
+            if (ctx->audio_st) {
+                audio_prev_pts = video_prev_pts * ctx->video_st->time_base.num * ctx->audio_st->time_base.den / ctx->video_st->time_base.den / ctx->audio_st->time_base.num;
+            }
+            start_time = av_gettime(); //ctime + (ctx->video_st->avg_frame_rate.den * 1000000 / ctx->video_st->avg_frame_rate.num); // adds one frame pause
+            v_frame_nr = 0;
+            a_frame_nr = 0;
+        }
 
-        if (ctx->max_frame_cnt != 0 && timestamp > ctx->max_frame_cnt) ctx->stop_threads = 1;
+        if (!produced) {
+            av_usleep(5000);
+            continue;
+        }
     }
 
     return NULL;
 }
 
-static int audio_callback(void *priv, uint8_t *frame,
-                          int nb_samples,
-                          int64_t timestamp,
-                          int64_t flags)
+static int decode_packet(AVPacket* packet,
+                         AVCodecContext* codec_ctx,
+                         AVFrame*** frame_buffer,
+                         int* buffer_size,
+                         int* frame_cnt)
 {
-//    SContext *ctx = priv;
-//    AVCodecParameters *c = ctx->audio_st->codecpar;
-//    AVPacket pkt;
-//    int ret;
-//
-//    ret = av_new_packet(&pkt, nb_samples * c->channels * (ctx->conf.audio_sample_depth / 8));
-//
-//    if (ret != 0) {
-//        return ret;
-//    }
-//
-//    memcpy(pkt.buf->data, frame,
-//           nb_samples * c->channels * (ctx->conf.audio_sample_depth / 8));
-//
-//    pkt.dts = pkt.pts = timestamp;
-//    pkt.flags        |= AV_PKT_FLAG_KEY;
-//    pkt.stream_index  = ctx->audio_st->index;
-//
-//    if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
-//        av_log(NULL, AV_LOG_WARNING, "no space in queue, audio frame dropped.\n");
-//        ctx->audio_st->dropped_frames++;
-//    }
+    int dret = 0;
+    dret = avcodec_send_packet(codec_ctx, packet);
+    if (dret < 0) {
+        fprintf(stderr, "Error sending a packet for decoding\n");
+        exit(1);
+    }
+
+    while (dret >= 0) {
+        AVFrame* frame = av_frame_alloc();
+        dret = avcodec_receive_frame(codec_ctx, frame);
+        if (dret == AVERROR(EAGAIN) || dret == AVERROR_EOF) {
+            av_frame_unref(frame);
+            break;
+        } else if (dret < 0) {
+            char errbuf[1024];
+            av_strerror(dret, errbuf, sizeof(errbuf));
+            av_log(NULL, AV_LOG_ERROR, "Decoding error: %s\n", errbuf);
+            exit(1);
+        }
+
+        if (*frame_cnt == *buffer_size) {
+            AVFrame** new_buffer = av_realloc(*frame_buffer, (*buffer_size + 100) * sizeof(AVFrame*));
+            if (!new_buffer) {
+                av_freep(new_buffer);
+                return AVERROR(ENOMEM);
+            }
+            *buffer_size += 100;
+            *frame_buffer = new_buffer;
+        }
+
+        (*frame_buffer)[*frame_cnt] = frame;
+        (*frame_cnt)++;
+    }
+
+    return 0;
+}
+
+static int loadVideoFrames(SContext *ctx)
+{
+    int video_stream_indx = -1, audio_stream_indx = -1, ret;
+
+    AVCodec *video_codec = NULL, *audio_codec = NULL;
+    AVCodecContext *video_codec_ctx = NULL, *audio_codec_ctx = NULL;
+    AVStream *video_stream = NULL, *audio_stream = NULL;
+
+    char errbuf[1024];
+
+    AVFormatContext* fmtCtx = avformat_alloc_context();
+
+    if (ctx->vfile == NULL) return AVERROR(EIO);
+
+
+    ret = avformat_open_input(&fmtCtx, ctx->vfile, NULL, NULL);
+    if (ret < 0) {
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        av_log(ctx, AV_LOG_ERROR, "error opening input: %s\n", errbuf);
+        return AVERROR(EIO);
+    }
+
+    ret = avformat_find_stream_info(fmtCtx, NULL);
+    if (ret < 0) {
+        av_strerror(ret, errbuf, sizeof(errbuf));
+        av_log(ctx, AV_LOG_ERROR, "failed to find stream info %s\n", errbuf);
+        return AVERROR(EIO);
+    }
+
+    av_log(ctx, AV_LOG_INFO, "Streams: %d\n", fmtCtx->nb_streams);
+
+    video_stream_indx = av_find_best_stream(fmtCtx, AVMEDIA_TYPE_VIDEO, -1, -1, &video_codec, 0);
+    if (video_stream_indx < 0) {
+        if (video_stream_indx == AVERROR_STREAM_NOT_FOUND) {
+            av_log(ctx, AV_LOG_ERROR, "video stream could not be found\n");
+        } else if (video_stream_indx == AVERROR_DECODER_NOT_FOUND) {
+            av_log(ctx, AV_LOG_ERROR, "video decoder could not be found\n");
+        }
+        return AVERROR(EIO);
+    } else {
+        video_stream = fmtCtx->streams[video_stream_indx];
+        video_codec_ctx = video_stream->codec;
+        if (avcodec_open2(video_codec_ctx, video_codec, NULL) < 0) {
+            av_log(ctx, AV_LOG_ERROR, "Failed to open decoder for stream #%u in file '%s'\n", video_stream_indx, ctx->vfile);
+            return AVERROR(EIO);
+        }
+        ctx->decoded_v_stream = video_stream;
+        av_log(ctx, AV_LOG_INFO, "FPS: %f\n", ((double)video_stream->avg_frame_rate.num / video_stream->avg_frame_rate.den));
+    }
+
+    audio_stream_indx = av_find_best_stream(fmtCtx, AVMEDIA_TYPE_AUDIO, -1, -1, &audio_codec, 0);
+    if (audio_stream_indx < 0) {
+        if (audio_stream_indx == AVERROR_STREAM_NOT_FOUND) {
+            av_log(ctx, AV_LOG_ERROR, "audio stream could not be found\n");
+        } else if (audio_stream_indx == AVERROR_DECODER_NOT_FOUND) {
+            av_log(ctx, AV_LOG_ERROR, "audio decoder could not be found\n");
+        }
+    } else {
+        audio_stream = fmtCtx->streams[audio_stream_indx];
+        audio_codec_ctx = audio_stream->codec;
+        if (avcodec_open2(audio_codec_ctx, audio_codec, NULL) < 0) {
+            av_log(ctx, AV_LOG_ERROR, "Failed to open decoder for stream #%u in file '%s'\n", audio_stream_indx, ctx->vfile);
+            return AVERROR(EIO);
+        }
+        ctx->decoded_a_stream = audio_stream;
+    }
+
+    ctx->v_buf_size = 0;
+    ctx->v_frame_cnt = 0;
+    ctx->v_frames = NULL;
+
+    ctx->a_buf_size = 0;
+    ctx->a_frame_cnt = 0;
+    ctx->a_frames = NULL;
+
+    AVPacket packet;
+
+    av_init_packet(&packet);
+
+    for (;;) {
+        AVPacket* toSend = NULL;
+        int ret = av_read_frame(fmtCtx, &packet);
+
+        if (ret == 0) { // go once more to flush decoders
+            toSend = &packet;
+        }
+
+        if (packet.stream_index == video_stream_indx || toSend == NULL) {
+            int r = decode_packet(toSend, video_codec_ctx, &ctx->v_frames, &ctx->v_buf_size, &ctx->v_frame_cnt);
+            if (r != 0) return r;
+        }
+
+        if (packet.stream_index == audio_stream_indx || (toSend == NULL && audio_codec_ctx)) {
+            int r = decode_packet(toSend, audio_codec_ctx, &ctx->a_frames, &ctx->a_buf_size, &ctx->a_frame_cnt);
+            if (r != 0) return r;
+        }
+
+        av_packet_unref(&packet);
+
+        if (ret < 0) {
+            av_strerror(ret, errbuf, sizeof(errbuf));
+            av_log(ctx, AV_LOG_INFO, "Decoding finished: %s\n", errbuf);
+            break;
+        }
+    }
+
+    av_log(ctx, AV_LOG_INFO, "Video frames: %d, Audio frames: %d\n", ctx->v_frame_cnt, ctx->a_frame_cnt);
 
     return 0;
 }
@@ -501,41 +637,29 @@ static int audio_callback(void *priv, uint8_t *frame,
 static int simulator_read_header(AVFormatContext *s)
 {
     SContext *ctx = s->priv_data;
-    int ret;
-    FILE *file;
+    int ret = 0;
 
     ctx->stop_threads = 0;
 
-    if ((ret = packet_queue_init(&ctx->q)) < 0)
-        return ret;
+    if ((ret = packet_queue_init(&ctx->q)) < 0) goto out;
 
-    file = fopen(ctx->frame_file, "r");
-    if(!file)
-    {
-        ret = AVERROR(EIO);
-        goto out;
-    }
+    if ((ret = loadVideoFrames(ctx)) < 0) goto out;
 
-    ctx->frame_size = 1920 * 1080 * 2;
-    ctx->raw_frame = malloc(ctx->frame_size);
-    fread(ctx->raw_frame, ctx->frame_size, 1, file);
-    fclose(file);
+    if (ctx->decoded_v_stream)
+        ctx->video_st = add_video_stream(s);
+    if (ctx->decoded_a_stream)
+        ctx->audio_st = add_audio_stream(s);
+    if (ctx->wallclock)
+        ctx->data_st  = add_data_stream(s);
 
-    ctx->video_st = add_video_stream(s);
-//    ctx->audio_st = add_audio_stream(s);
-    ctx->data_st  = add_data_stream(s);
-
-    if (!ctx->video_st
-//        || !ctx->audio_st
-        )
-    {
+    if (!ctx->video_st) {
         ret = AVERROR(ENOMEM);
         goto out;
     }
 
     ctx->start_time = AV_NOPTS_VALUE;
 
-    pthread_create(&ctx->v_thread, NULL, &video_callback, (void*)ctx);
+    pthread_create(&ctx->video_thread, NULL, &video_thread, (void*)ctx);
 
     return 0;
 out:
@@ -548,9 +672,7 @@ static int simulator_read_packet(AVFormatContext *s, AVPacket *pkt)
     SContext *ctx = s->priv_data;
 
     if (ctx->stop_threads)
-    {
         return AVERROR_EOF;
-    }
 
     return packet_queue_get(&ctx->q, pkt, 0);
 }
@@ -558,11 +680,9 @@ static int simulator_read_packet(AVFormatContext *s, AVPacket *pkt)
 #define OC(x) offsetof(SContext, x)
 #define D AV_OPT_FLAG_DECODING_PARAM
 static const AVOption options[] = {
-    { "max", "File cnt to generate",   OC(max_frame_cnt), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
-    { "video_timeout",    "Video timeout (in seconds), 0 to disable the timeout",      OC(timeout),          AV_OPT_TYPE_INT64, {.i64 = 3}, 0, INT_MAX, D },
     { "queue_size",       "Packet queue size, 0 to disable the queue limit",  OC(queue_size),       AV_OPT_TYPE_INT64, {.i64 = 25}, 0, INT_MAX, D },
-    { "frame", "UYVY raw 8bit frame"         , OC(frame_file), AV_OPT_TYPE_STRING, {.str = 0}, 0, 0, D },
-    { "wallclock",        "Add the wallclock", OC(wallclock),     AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
+    { "video",     "Video file to repeat", OC(vfile), AV_OPT_TYPE_STRING, {.str = 0}, 0, 0, D },
+    { "wallclock", "Add the wallclock",    OC(wallclock), AV_OPT_TYPE_INT, {.i64 = 0}, 0, INT_MAX, D },
     { NULL },
 };
 
@@ -573,10 +693,9 @@ static const AVClass simulator_class = {
     .version    = LIBAVUTIL_VERSION_INT,
 };
 
-/** x11 grabber device demuxer declaration */
 AVInputFormat ff_simulator_demuxer = {
     .name           = "simulator",
-    .long_name      = NULL_IF_CONFIG_SMALL("Input simulator"),
+    .long_name      = NULL_IF_CONFIG_SMALL("Input stream simulator"),
     .priv_data_size = sizeof(SContext),
     .read_header    = simulator_read_header,
     .read_packet    = simulator_read_packet,
@@ -584,4 +703,3 @@ AVInputFormat ff_simulator_demuxer = {
     .flags          = AVFMT_NOFILE,
     .priv_class     = &simulator_class,
 };
-
