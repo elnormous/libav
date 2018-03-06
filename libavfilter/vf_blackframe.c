@@ -40,6 +40,9 @@
 #include "internal.h"
 #include "video.h"
 
+#include <emmintrin.h>
+#include <smmintrin.h>
+
 typedef struct BlackFrameContext {
     const AVClass *class;
     int bamount;          ///< black amount
@@ -60,19 +63,75 @@ static int query_formats(AVFilterContext *ctx)
     return 0;
 }
 
+static uint64_t vectorised_count(uint8_t* img, int w, int linesize, int h, uint8_t threshold)
+{
+    uint64_t cnt = 0;
+    int bi, i, x, stores;
+
+    uint8_t* p = img;
+
+    __m128i thresh = _mm_set1_epi8(threshold);
+    __m128i maxVal = _mm_set1_epi8(255);
+    __m128i thSub = _mm_set1_epi8(254);
+    __m128i thAdd = _mm_subs_epi8(maxVal, thresh);
+    __m128i zero = _mm_set1_epi8(0);
+    __m128i tmpSum = _mm_setzero_si128();
+
+    uint8_t buf[16];
+    uint8_t tmp[16];
+
+    for (i = 0; i < h; i++) {
+        stores = 0;
+
+        for (x = 0; x < w - 15; x += 16) {
+            __m128i p1 = _mm_loadu_si128((__m128i*)&p[x]);
+            __m128i ones = _mm_subs_epu8(_mm_adds_epu8(p1, thAdd), thSub);
+            tmpSum += ones; //_mm_add_epi8(ones, tmpSum);
+
+            stores++;
+            if (stores >= 255) {
+                stores = 0;
+                _mm_storeu_si128((__m128i*)(&buf[0]), tmpSum);
+                for (bi = 0; bi < 16; bi++) {
+                    cnt += buf[bi];
+                }
+                tmpSum = zero;
+            }
+        }
+
+        for (; x < w; x++) {
+            cnt += p[x] >= threshold;
+        }
+
+        _mm_storeu_si128((__m128i*)(&buf[0]), tmpSum);
+        for (bi = 0; bi < 16; bi++) {
+            cnt += buf[bi];
+        }
+        tmpSum = zero;
+
+        p += linesize;
+    }
+
+    return h * w - cnt;
+}
+
 static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
 {
     AVFilterContext *ctx = inlink->dst;
     BlackFrameContext *s = ctx->priv;
-    int x, i;
     int pblack = 0;
-    uint8_t *p = frame->data[0];
 
-    for (i = 0; i < frame->height; i++) {
-        for (x = 0; x < inlink->w; x++)
-            s->nblack += p[x] < s->bthresh;
-        p += frame->linesize[0];
-    }
+// original counting code
+//    int x, i;
+//    uint8_t *p = frame->data[0];
+//
+//    for (i = 0; i < frame->height; i++) {
+//        for (x = 0; x < inlink->w; x++)
+//            s->nblack += p[x] < s->bthresh;
+//        p += frame->linesize[0];
+//    }
+
+    s->nblack = vectorised_count(frame->data[0], inlink->w, frame->linesize[0], frame->height, s->bthresh);
 
     pblack = s->nblack * 100 / (inlink->w * inlink->h);
     if (pblack >= s->bamount) {
