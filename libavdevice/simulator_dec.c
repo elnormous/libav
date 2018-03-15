@@ -516,7 +516,7 @@ static int loadVideoFrames(SContext *ctx)
     AVCodec *video_codec = NULL, *audio_codec = NULL;
     AVCodecContext *video_codec_ctx = NULL, *audio_codec_ctx = NULL;
     AVStream *video_stream = NULL, *audio_stream = NULL;
-
+    AVPacket packet;
     char errbuf[1024];
 
     AVFormatContext* fmtCtx = avformat_alloc_context();
@@ -583,8 +583,6 @@ static int loadVideoFrames(SContext *ctx)
     ctx->a_buf_size = 0;
     ctx->a_frame_cnt = 0;
     ctx->a_frames = NULL;
-
-    AVPacket packet;
 
     av_init_packet(&packet);
 
