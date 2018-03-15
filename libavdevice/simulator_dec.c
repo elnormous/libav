@@ -237,6 +237,7 @@ static AVStream *add_audio_stream(AVFormatContext *oc)
 
 static AVStream *add_data_stream(AVFormatContext *oc)
 {
+    SContext *ctx = oc->priv_data;
     AVCodecParameters *c;
     AVStream *st;
 
@@ -250,11 +251,8 @@ static AVStream *add_data_stream(AVFormatContext *oc)
     c->codec_id   = AV_CODEC_ID_TEXT;
     c->codec_type = AVMEDIA_TYPE_DATA;
 
-    st->time_base.den = 25; //conf->tb_den; // 24000
-    st->time_base.num = 1; //conf->tb_num; // 1001
-
-    st->avg_frame_rate.num = 25; // conf->tb_den;
-    st->avg_frame_rate.den = 1; // conf->tb_num;
+    st->time_base = ctx->video_st->time_base;
+    st->avg_frame_rate = ctx->video_st->avg_frame_rate;
 
     return st;
 }
@@ -363,12 +361,6 @@ static void* video_thread(void *priv)
         }
     }
 
-//    double tpf = (double)(ctx->video_st->time_base.den * ctx->video_st->avg_frame_rate.den) / (ctx->video_st->time_base.num * ctx->video_st->avg_frame_rate.num);
-//    double tpf = (double)(ctx->video_st->avg_frame_rate.den) * 1000000 / (ctx->video_st->avg_frame_rate.num);
-//    int globalFrame = 0;
-
-//    ctx->video_st->time_base.den / ctx->video_st->time_base.num
-
     while (!ctx->stop_threads) {
         int64_t ctime = av_gettime();
         int produced = 0;
@@ -376,12 +368,10 @@ static void* video_thread(void *priv)
         v_pts = (ctime - start_time) * ctx->video_st->time_base.den / ctx->video_st->time_base.num / 1000000;
 
         // should add video frame
-//        while (globalFrame <= (int)((ctime - start_time) / tpf))
         while (v_frame_nr < ctx->v_frame_cnt && ctx->v_frames[v_frame_nr]->pts <= v_pts)
         {
             AVPacket pkt;
             AVFrame* frame = ctx->v_frames[v_frame_nr++];
-//            AVFrame* frame = ctx->v_frames[globalFrame % ctx->v_frame_cnt];
             const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(frame->format);
             int ret, i, psize = 0;
             uint64_t copied = 0;
@@ -406,14 +396,11 @@ static void* video_thread(void *priv)
                 copied += frame->linesize[i] * h;
             }
 
-//            pkt.pts = pkt.dts = globalFrame * ctx->video_st->time_base.den / ctx->video_st->avg_frame_rate.num;
             pkt.pts = pkt.dts = video_prev_pts + frame->pts;
             pkt.duration      = 1;
 
             pkt.flags        |= AV_PKT_FLAG_KEY;
             pkt.stream_index  = ctx->video_st->index;
-
-            av_log(ctx, AV_LOG_INFO, "V: %d\n", pkt.pts);
 
             if (ctx->wallclock) {
                 put_wallclock_packet(ctx, pkt.pts);
@@ -424,7 +411,6 @@ static void* video_thread(void *priv)
                 ctx->video_st->dropped_frames++;
             }
 
-//            globalFrame++;
             produced = 1;
         }
 
@@ -466,7 +452,7 @@ static void* video_thread(void *priv)
             if (ctx->audio_st) {
                 audio_prev_pts = video_prev_pts * ctx->video_st->time_base.num * ctx->audio_st->time_base.den / ctx->video_st->time_base.den / ctx->audio_st->time_base.num;
             }
-            start_time = av_gettime(); //ctime + (ctx->video_st->avg_frame_rate.den * 1000000 / ctx->video_st->avg_frame_rate.num); // adds one frame pause
+            start_time = av_gettime();
             v_frame_nr = 0;
             a_frame_nr = 0;
         }
