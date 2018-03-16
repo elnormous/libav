@@ -157,7 +157,20 @@ static void* connect_thread(void* arg)
 
     while (!stop) {
         // connect to encoder tools
-        if (sockfd <= 0) {
+
+        msg_queue_get(&queue, msg, 1);
+        if (msg->type == ENC_MSG_LAST) {
+            free(msg->msg);
+            break;
+        }
+
+        if (sockfd > 0 && read(sockfd, buf, sizeof(buf)-1) == 0) {
+            av_log(NULL, AV_LOG_WARNING, "ENC Disconnected\n");
+            close(sockfd);
+            sockfd = -1;
+        }
+
+        while (sockfd <= 0) {
             int portno;
             struct sockaddr_in serv_addr;
             struct hostent *server;
@@ -211,15 +224,10 @@ static void* connect_thread(void* arg)
             }
 
             av_log(NULL, AV_LOG_WARNING, "ENC Connected\n");
+            break;
         }
 
-        if (read(sockfd, buf, sizeof(buf)-1) == 0) {
-            av_log(NULL, AV_LOG_WARNING, "ENC Disconnected\n");
-            close(sockfd);
-            sockfd = -1;
-        }
-
-        if (msg_queue_get(&queue, msg, 0) == 0) {
+        {
             int suc = 1;
             uint16_t n = ntohs(2 + strlen(msg->msg));
             uint16_t swappedType = ntohs(msg->type);
@@ -234,8 +242,6 @@ static void* connect_thread(void* arg)
             }
 
             free(msg->msg);
-        } else {
-            usleep(10000);
         }
     }
 
@@ -261,6 +267,7 @@ void enc_connection_stop()
 {
     if (enc_connection != NULL) {
         stop = 1;
+        enc_send(ENC_MSG_LAST, "");
         pthread_join(thread, NULL);
         msg_queue_end(&queue);
     }
