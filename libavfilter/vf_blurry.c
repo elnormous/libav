@@ -15,7 +15,7 @@ typedef struct BlurryContext {
     int bthresh;          ///< blurry threshold
     unsigned int frame;   ///< frame number
     unsigned int nblurry;  ///< number of blurry pixels counted so far
-} BlurryFrameContext;
+} BlurryContext;
 
 typedef struct                       /**** Colormap entry structure ****/
 {
@@ -43,15 +43,14 @@ double laplacian3x3[3][3] = {
     {0.0, 1.0, 0.0}
 };
 
-static int convolution_filter(const uint8_t* sourceBitmap,
+static int convolution_filter(const uint8_t *sourceBitmap,
                               uint32_t width, uint32_t height,
                               double filterMatrix[3][3],
                               double factor,
                               int bias,
-                              uint8_t** laplace)
+                              uint8_t **laplace)
 {
-    uint8_t* result = malloc(width * height);
-    memset(result, 0, width * height);
+    uint8_t *result = av_mallocz(width * height);
     
     double value = 0.0;
 
@@ -95,7 +94,7 @@ static int convolution_filter(const uint8_t* sourceBitmap,
     return 1;
 }
 
-static double calculate_variance(const uint8_t* bitmap, uint32_t size)
+static double calculate_variance(const uint8_t *bitmap, uint32_t size)
 {
     double mean = 0.0;
     double variance = 0.0;
@@ -118,20 +117,20 @@ static double calculate_variance(const uint8_t* bitmap, uint32_t size)
 static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
 {
     AVFilterContext *ctx = inlink->dst;
-    BlurryFrameContext *s = ctx->priv;
+    BlurryContext *s = ctx->priv;
     int x, i;
     int pblurry = 0;
     uint8_t *p = frame->data[0];
     uint8_t *grayscale;
     uint8_t *laplace;
 
-    grayscale = malloc(inlink->w * frame->height);
+    grayscale = av_malloc(inlink->w * frame->height);
 
     for (i = 0; i < frame->height; i++) {
         for (x = 0; x < inlink->w; x++)
-            buffer[x] = p[x];
+            grayscale[x] = p[x];
         p += frame->linesize[0];
-        buffer += frame->height;
+        grayscale += frame->height;
     }
 
     convolution_filter(grayscale, inlink->w, frame->height, laplacian3x3, 1.0, 0, &laplace);
@@ -144,8 +143,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
 
     }
 
-    free(grayscale);
-    free(bitmap);
+    av_free(grayscale);
 
     s->frame++;
     s->nblurry = 0;
@@ -153,7 +151,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
     return ff_filter_frame(inlink->dst->outputs[0], frame);
 }
 
-#define OFFSET(x) offsetof(BlurryFrameContext, x)
+#define OFFSET(x) offsetof(BlurryContext, x)
 #define FLAGS AV_OPT_FLAG_VIDEO_PARAM
 static const AVOption options[] = {
     { "amount", "Percentage of the pixels that have to be below the threshold "

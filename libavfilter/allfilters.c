@@ -120,6 +120,8 @@ void avfilter_register_all(void)
     REGISTER_FILTER(VPP_QSV,        vpp_qsv,        vf);
     REGISTER_FILTER(YADIF,          yadif,          vf);
 
+    REGISTER_FILTER(BLURRY,         blurry,         vf);
+
     REGISTER_FILTER(COLOR,          color,          vsrc);
     REGISTER_FILTER(FREI0R,         frei0r_src,     vsrc);
     REGISTER_FILTER(MOVIE,          movie,          vsrc);

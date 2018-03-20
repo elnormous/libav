@@ -100,6 +100,8 @@ OBJS-$(CONFIG_VFLIP_FILTER)                  += vf_vflip.o
 OBJS-$(CONFIG_VPP_QSV_FILTER)                += vf_vpp_qsv.o
 OBJS-$(CONFIG_YADIF_FILTER)                  += vf_yadif.o
 
+OBJS-$(CONFIG_BLURRY_FILTER)                 += vf_blurry.o
+
 OBJS-$(CONFIG_NULLSINK_FILTER)               += vsink_nullsink.o
 
 OBJS-$(CONFIG_COLOR_FILTER)                  += vsrc_color.o
