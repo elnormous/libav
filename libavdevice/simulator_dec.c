@@ -269,14 +269,17 @@ static AVStream *add_video_stream(AVFormatContext *oc)
     if (!st)
         return NULL;
 
+    av_log(NULL, AV_LOG_INFO, "VTB: %d %d\n", ctx->decoded_v_stream->time_base.num, ctx->decoded_v_stream->time_base.den);
+
     c                = st->codecpar;
     c->codec_type    = AVMEDIA_TYPE_VIDEO;
 
     c->width         = dc->width;
     c->height        = dc->height;
 
-    st->time_base    = ctx->decoded_v_stream->time_base;
     st->avg_frame_rate = ctx->decoded_v_stream->avg_frame_rate;
+    st->time_base.num = st->avg_frame_rate.den;
+    st->time_base.den = st->avg_frame_rate.num;
 
     c->field_order = dc->field_order;
     c->format    = dc->format;
@@ -289,12 +292,23 @@ static AVStream *add_video_stream(AVFormatContext *oc)
 static int simulator_read_close(AVFormatContext *s)
 {
     SContext *ctx = s->priv_data;
+    int i;
 
     ctx->stop_threads = 1;
 
     pthread_join(ctx->video_thread, NULL);
 
     packet_queue_end(&ctx->q);
+
+    for (i = 0; i < ctx->a_frame_cnt; i++) {
+        av_frame_free(&ctx->a_frames[i]);
+    }
+    free(ctx->a_frames);
+
+    for (i = 0; i < ctx->v_frame_cnt; i++) {
+        av_frame_free(&ctx->v_frames[i]);
+    }
+    free(ctx->v_frames);
 
     return 0;
 }
@@ -331,9 +345,10 @@ static void* video_thread(void *priv)
 {
     SContext *ctx = priv;
     uint64_t v_frame_nr = 0, a_frame_nr = 0;
-    int64_t v_pts = 0, a_pts = 0;
+    int64_t a_pts = 0;
     int64_t start_time = av_gettime();
-    uint64_t video_prev_pts = 0, audio_prev_pts = 0;
+    int64_t vf_shown = -1;
+    uint64_t loop_pts = 0;
 
     {
         int64_t* time_data;
@@ -365,16 +380,28 @@ static void* video_thread(void *priv)
         int64_t ctime = av_gettime();
         int produced = 0;
 
-        v_pts = (ctime - start_time) * ctx->video_st->time_base.den / ctx->video_st->time_base.num / 1000000;
+        int64_t vf_to_show = ((ctime - start_time) / 1000) * ctx->video_st->avg_frame_rate.num / (ctx->video_st->avg_frame_rate.den * 1000);
 
-        // should add video frame
-        while (v_frame_nr < ctx->v_frame_cnt && ctx->v_frames[v_frame_nr]->pts <= v_pts)
+        uint64_t vf_pts_to_show = vf_to_show * ctx->decoded_v_stream->time_base.den /
+            ctx->decoded_v_stream->time_base.num * ctx->video_st->avg_frame_rate.den / ctx->video_st->avg_frame_rate.num;
+
+        while (vf_shown < vf_to_show)
         {
             AVPacket pkt;
-            AVFrame* frame = ctx->v_frames[v_frame_nr++];
-            const AVPixFmtDescriptor *desc = av_pix_fmt_desc_get(frame->format);
             int ret, i, psize = 0;
             uint64_t copied = 0;
+            AVFrame* frame;
+            const AVPixFmtDescriptor* desc;
+
+            if (v_frame_nr >= ctx->v_frame_cnt) {
+                v_frame_nr = 0;
+                loop_pts = vf_pts_to_show;
+                a_frame_nr = 0; // reset audio counters too
+                a_pts = 0;
+            }
+
+            frame = ctx->v_frames[v_frame_nr];
+            desc = av_pix_fmt_desc_get(frame->format);
 
             for (i = 0; i < 4 && frame->linesize[i]; i++) {
                 int h = frame->height;
@@ -396,7 +423,8 @@ static void* video_thread(void *priv)
                 copied += frame->linesize[i] * h;
             }
 
-            pkt.pts = pkt.dts = video_prev_pts + frame->pts;
+            // pkts should produced with sequential pts - not real pkt pts
+            pkt.pts = pkt.dts = vf_to_show;
             pkt.duration      = 1;
 
             pkt.flags        |= AV_PKT_FLAG_KEY;
@@ -411,18 +439,30 @@ static void* video_thread(void *priv)
                 ctx->video_st->dropped_frames++;
             }
 
+            if (frame->pts <= vf_pts_to_show - loop_pts) {
+                v_frame_nr++;
+            }
+
+            vf_shown++;
             produced = 1;
         }
 
         if (ctx->audio_st) {
-            a_pts = (ctime - start_time) * ctx->audio_st->time_base.den / ctx->audio_st->time_base.num / 1000000;
-            while (a_frame_nr < ctx->a_frame_cnt && ctx->a_frames[a_frame_nr]->pts <= a_pts) {
+
+            // convert video time to audio time and release all audio frames till that frame
+            int64_t a_pts_to_show = ((vf_pts_to_show - loop_pts) * ctx->audio_st->time_base.den) / (ctx->decoded_v_stream->time_base.den * ctx->audio_st->time_base.num);
+            int64_t loop_a_pts = (loop_pts * ctx->audio_st->time_base.den) / (ctx->decoded_v_stream->time_base.den * ctx->audio_st->time_base.num);
+
+            while (a_frame_nr < ctx->a_frame_cnt && a_pts <= a_pts_to_show) {
                 AVPacket pkt;
-                int ret;
+                int ret, sz;
 
                 AVFrame* frame = ctx->a_frames[a_frame_nr++];
+                while (frame->pts < 0 && a_frame_nr < ctx->a_frame_cnt) {
+                    frame = ctx->a_frames[a_frame_nr++];
+                }
 
-                int sz = av_get_bytes_per_sample(frame->format) * frame->nb_samples;
+                sz = av_get_bytes_per_sample(frame->format) * frame->nb_samples;
 
                 ret = av_new_packet(&pkt, sz);
                 if (ret != 0) {
@@ -432,7 +472,9 @@ static void* video_thread(void *priv)
 
                 memcpy(pkt.buf->data, frame->data[0], sz);
 
-                pkt.dts = pkt.pts = audio_prev_pts + frame->pts;// a_samples;
+                a_pts = frame->pts;
+
+                pkt.dts = pkt.pts = loop_a_pts + frame->pts;
                 pkt.flags        |= AV_PKT_FLAG_KEY;
                 pkt.stream_index  = ctx->audio_st->index;
 
@@ -445,20 +487,8 @@ static void* video_thread(void *priv)
             }
         }
 
-        if (v_frame_nr >= ctx->v_frame_cnt)
-        {
-            video_prev_pts += ctx->v_frames[ctx->v_frame_cnt-1]->pts + // add one frame
-                (ctx->video_st->time_base.den * ctx->video_st->avg_frame_rate.den) / (ctx->video_st->time_base.num * ctx->video_st->avg_frame_rate.num);
-            if (ctx->audio_st) {
-                audio_prev_pts = video_prev_pts * ctx->video_st->time_base.num * ctx->audio_st->time_base.den / ctx->video_st->time_base.den / ctx->audio_st->time_base.num;
-            }
-            start_time = av_gettime();
-            v_frame_nr = 0;
-            a_frame_nr = 0;
-        }
-
         if (!produced) {
-            av_usleep(5000);
+            av_usleep(15000);
             continue;
         }
     }
@@ -585,6 +615,7 @@ static int loadVideoFrames(SContext *ctx)
     ctx->a_frames = NULL;
 
     av_init_packet(&packet);
+    av_log(ctx, AV_LOG_INFO, "Decoding video\n");
 
     for (;;) {
         AVPacket* toSend = NULL;
