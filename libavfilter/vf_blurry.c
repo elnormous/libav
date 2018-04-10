@@ -1,5 +1,6 @@
-#include <stdio.h>
 #include <inttypes.h>
+#include <stdio.h>
+#include <string.h>
 
 #include "libavutil/internal.h"
 #include "libavutil/opt.h"
@@ -16,14 +17,6 @@ typedef struct BlurryContext {
     unsigned int frame;   ///< frame number
     unsigned int nblurry;  ///< number of blurry pixels counted so far
 } BlurryContext;
-
-typedef struct                       /**** Colormap entry structure ****/
-{
-    unsigned char rgbBlue;          /* Blue value */
-    unsigned char rgbGreen;         /* Green value */
-    unsigned char rgbRed;           /* Red value */
-    unsigned char rgbReserved;      /* Reserved */
-} RGBQUAD;
 
 static int query_formats(AVFilterContext *ctx)
 {
@@ -48,10 +41,8 @@ static int convolution_filter(const uint8_t *sourceBitmap,
                               double filterMatrix[3][3],
                               double factor,
                               int bias,
-                              uint8_t **laplace)
+                              uint8_t *laplace)
 {
-    uint8_t *result = av_mallocz(width * height);
-    
     double value = 0.0;
 
     int filterWidth = 3;
@@ -61,6 +52,8 @@ static int convolution_filter(const uint8_t *sourceBitmap,
     int calcOffset = 0;
 
     int offset = 0;
+
+    memset(laplace, 0, width * height);
 
     for (int offsetY = filterOffset; offsetY < height - filterOffset; offsetY++)
     {
@@ -85,11 +78,9 @@ static int convolution_filter(const uint8_t *sourceBitmap,
             if (value > 255) value = 255;
             else if (value < 0) value = 0;
 
-            result[offset] = (uint8_t)value;
+            laplace[offset] = (uint8_t)value;
         }
     }
-
-    *laplace = result;
 
     return 1;
 }
@@ -118,22 +109,28 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
 {
     AVFilterContext *ctx = inlink->dst;
     BlurryContext *s = ctx->priv;
-    int x, i;
     int pblurry = 0;
-    uint8_t *p = frame->data[0];
     uint8_t *grayscale;
     uint8_t *laplace;
 
     grayscale = av_malloc(inlink->w * frame->height);
 
-    for (i = 0; i < frame->height; i++) {
-        for (x = 0; x < inlink->w; x++)
-            grayscale[x] = p[x];
-        p += frame->linesize[0];
-        grayscale += frame->height;
+    if (frame->format == AV_PIX_FMT_YUV420P)
+    {
+        int x, i;
+
+        for (i = 0; i < frame->height; i++)
+            for (x = 0; x < inlink->w; x++)
+                grayscale[i * inlink->w + x] = frame->data[0][i * frame->linesize[0] + x];
+    }
+    else
+    {
+        av_free(grayscale);
+        return AVERROR(EINVAL);
     }
 
-    convolution_filter(grayscale, inlink->w, frame->height, laplacian3x3, 1.0, 0, &laplace);
+    laplace = av_malloc(inlink->w * frame->height);
+    convolution_filter(grayscale, inlink->w, frame->height, laplacian3x3, 1.0, 0, laplace);
 
     if (calculate_variance(laplace, inlink->w * frame->height) < s->bthresh)
     {
@@ -143,6 +140,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
 
     }
 
+    av_free(laplace);
     av_free(grayscale);
 
     s->frame++;
