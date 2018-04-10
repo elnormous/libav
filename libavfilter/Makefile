@@ -46,6 +46,7 @@ OBJS-$(CONFIG_ANULLSINK_FILTER)              += asink_anullsink.o
 OBJS-$(CONFIG_ANULLSRC_FILTER)               += asrc_anullsrc.o
 
 # video filters
+OBJS-$(CONFIG_CORUPT_FILTER)                 += vf_corupt.o
 OBJS-$(CONFIG_BLACKFRAME_FILTER)             += vf_blackframe.o
 OBJS-$(CONFIG_BOXBLUR_FILTER)                += vf_boxblur.o
 OBJS-$(CONFIG_COPY_FILTER)                   += vf_copy.o
