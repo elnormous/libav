@@ -25,9 +25,9 @@
 
 typedef struct CoruptContext {
     const AVClass *class;
-    char *blackframe, *blur;
+    char *make_black_frames, *make_blury_frames;
 
-    uint8_t *temp[2];
+    uint8_t *blur_calc_temp_storage[2];
 } CoruptContext;
 
 static int query_formats(AVFilterContext *ctx)
@@ -60,27 +60,27 @@ static inline void blur(uint8_t *dst, int dst_step, const uint8_t *src, int src_
      * and subtracting 1 input pixel.
      * The following code adopts this faster variant.
      */
-    const int length = radius*2 + 1;
-    const int inv = ((1<<16) + length/2)/length;
+    const int length = radius * 2 + 1;
+    const int inv = ((1 << 16) + length / 2) / length;
     int x, sum = 0;
 
     for (x = 0; x < radius; x++)
-        sum += src[x*src_step]<<1;
-    sum += src[radius*src_step];
+        sum += src[x * src_step] << 1;
+    sum += src[radius * src_step];
 
     for (x = 0; x <= radius; x++) {
-        sum += src[(radius+x)*src_step] - src[(radius-x)*src_step];
-        dst[x*dst_step] = (sum*inv + (1<<15))>>16;
+        sum += src[(radius + x) * src_step] - src[(radius - x) * src_step];
+        dst[x * dst_step] = (sum * inv + (1 << 15)) >> 16;
     }
 
     for (; x < len-radius; x++) {
-        sum += src[(radius+x)*src_step] - src[(x-radius-1)*src_step];
-        dst[x*dst_step] = (sum*inv + (1<<15))>>16;
+        sum += src[(radius + x) * src_step] - src[(x - radius - 1) * src_step];
+        dst[x * dst_step] = (sum * inv + (1 << 15)) >> 16;
     }
 
     for (; x < len; x++) {
-        sum += src[(2*len-radius-x-1)*src_step] - src[(x-radius-1)*src_step];
-        dst[x*dst_step] = (sum*inv + (1<<15))>>16;
+        sum += src[(2 * len - radius - x - 1) * src_step] - src[(x - radius - 1) * src_step];
+        dst[x * dst_step] = (sum * inv + (1 << 15)) >> 16;
     }
 }
 
@@ -101,12 +101,12 @@ static inline void blur_power(uint8_t *dst, int dst_step, const uint8_t *src, in
         } else {
             int i;
             for (i = 0; i < len; i++)
-                dst[i*dst_step] = a[i];
+                dst[i * dst_step] = a[i];
         }
     } else {
         int i;
         for (i = 0; i < len; i++)
-            dst[i*dst_step] = src[i*src_step];
+            dst[i * dst_step] = src[i * src_step];
     }
 }
 
@@ -119,7 +119,7 @@ static void hblur(uint8_t *dst, int dst_linesize, const uint8_t *src, int src_li
         return;
 
     for (y = 0; y < h; y++)
-        blur_power(dst + y*dst_linesize, 1, src + y*src_linesize, 1,
+        blur_power(dst + y * dst_linesize, 1, src + y * src_linesize, 1,
                    w, radius, power, temp);
 }
 
@@ -141,7 +141,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
     AVFilterContext *ctx = inlink->dst;
     CoruptContext *s = ctx->priv;
 
-    if (s->blackframe) {
+    if (s->make_black_frames) {
         if ((rand() & 0xF) == 1) {
             memset(frame->data[0], 0, frame->linesize[0] * frame->height);
             memset(frame->data[1], 127, frame->linesize[1] * frame->height / 2);
@@ -149,7 +149,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
         }
     }
 
-    if (s->blur) {
+    if (s->make_blury_frames) {
         if ((rand() & 0xF) == 1)
         {
             AVFilterLink *outlink = inlink->dst->outputs[0];
@@ -170,13 +170,13 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
                 hblur(out->data[plane], out->linesize[plane],
                       frame ->data[plane], frame ->linesize[plane],
                       w[plane], h[plane], plane == 0 ? 5 : 3, 2,
-                      s->temp);
+                      s->blur_calc_temp_storage);
 
             for (plane = 0; frame->data[plane] && plane < 4; plane++)
                 vblur(out->data[plane], out->linesize[plane],
                       out->data[plane], out->linesize[plane],
                       w[plane], h[plane], plane == 0 ? 5 : 3, 2,
-                      s->temp);
+                      s->blur_calc_temp_storage);
 
             av_frame_free(&frame);
             frame = out;
@@ -189,13 +189,13 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
 #define OFFSET(x) offsetof(CoruptContext, x)
 #define FLAGS AV_OPT_FLAG_VIDEO_PARAM
 static const AVOption options[] = {
-    { "blackframe", "Output video width",  OFFSET(blackframe), AV_OPT_TYPE_STRING, { .str = NULL },                 .flags = FLAGS },
-    { "blur", "Output video height", OFFSET(blur), AV_OPT_TYPE_STRING, { .str = NULL },                 .flags = FLAGS },
+    { "blackframe", "Make black frames", OFFSET(make_black_frames), AV_OPT_TYPE_STRING, { .str = NULL }, .flags = FLAGS },
+    { "blur", "Make blury frames", OFFSET(make_blury_frames), AV_OPT_TYPE_STRING, { .str = NULL }, .flags = FLAGS },
     { NULL },
 };
 
 static const AVClass corupt_class = {
-    .class_name = "crop",
+    .class_name = "corupt",
     .item_name  = av_default_item_name,
     .option     = options,
     .version    = LIBAVUTIL_VERSION_INT,
@@ -207,12 +207,12 @@ static int config_input(AVFilterLink *inlink)
     CoruptContext *s = ctx->priv;
     int w = inlink->w, h = inlink->h;
 
-    av_freep(&s->temp[0]);
-    av_freep(&s->temp[1]);
-    if (!(s->temp[0] = av_malloc(FFMAX(w, h))))
+    av_freep(&s->blur_calc_temp_storage[0]);
+    av_freep(&s->blur_calc_temp_storage[1]);
+    if (!(s->blur_calc_temp_storage[0] = av_malloc(FFMAX(w, h))))
         return AVERROR(ENOMEM);
-    if (!(s->temp[1] = av_malloc(FFMAX(w, h)))) {
-        av_freep(&s->temp[0]);
+    if (!(s->blur_calc_temp_storage[1] = av_malloc(FFMAX(w, h)))) {
+        av_freep(&s->blur_calc_temp_storage[0]);
         return AVERROR(ENOMEM);
     }
 
@@ -241,8 +241,8 @@ static av_cold void uninit(AVFilterContext *ctx)
 {
     CoruptContext *s = ctx->priv;
 
-    av_freep(&s->temp[0]);
-    av_freep(&s->temp[1]);
+    av_freep(&s->blur_calc_temp_storage[0]);
+    av_freep(&s->blur_calc_temp_storage[1]);
 }
 
 AVFilter ff_vf_corupt = {
