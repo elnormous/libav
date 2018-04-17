@@ -25,9 +25,14 @@
 
 typedef struct CoruptContext {
     const AVClass *class;
-    char *make_black_frames, *make_blury_frames;
+    int make_blury_frames;
+    int blackframe_amount;
+    int blackframe_interval;
 
     uint8_t *blur_calc_temp_storage[2];
+    int make_black_frames;
+    int blackframes_to_insert;
+    int waiting_for_blackframe;
 } CoruptContext;
 
 static int query_formats(AVFilterContext *ctx)
@@ -142,7 +147,17 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
     CoruptContext *s = ctx->priv;
 
     if (s->make_black_frames) {
-        if ((rand() & 0xF) == 1) {
+        if (s->blackframes_to_insert <= 0) {
+            s->waiting_for_blackframe--;
+            if (s->waiting_for_blackframe <= 0) {
+                s->blackframes_to_insert = rand() % s->blackframe_amount;
+            }
+        } else {
+            s->blackframes_to_insert--;
+            if (s->blackframes_to_insert <= 0) {
+                s->waiting_for_blackframe = rand() % s->blackframe_interval;
+            }
+
             memset(frame->data[0], 0, frame->linesize[0] * frame->height);
             memset(frame->data[1], 127, frame->linesize[1] * frame->height / 2);
             memset(frame->data[2], 127, frame->linesize[2] * frame->height / 2);
@@ -150,8 +165,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
     }
 
     if (s->make_blury_frames) {
-        if ((rand() & 0xF) == 1)
-        {
+        if ((rand() & 0xF) == 1) {
             AVFilterLink *outlink = inlink->dst->outputs[0];
             AVFrame *out;
             int plane;
@@ -189,8 +203,9 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
 #define OFFSET(x) offsetof(CoruptContext, x)
 #define FLAGS AV_OPT_FLAG_VIDEO_PARAM
 static const AVOption options[] = {
-    { "blackframe", "Make black frames", OFFSET(make_black_frames), AV_OPT_TYPE_STRING, { .str = NULL }, .flags = FLAGS },
-    { "blur", "Make blury frames", OFFSET(make_blury_frames), AV_OPT_TYPE_STRING, { .str = NULL }, .flags = FLAGS },
+    { "blur", "Make blury frames", OFFSET(make_blury_frames), AV_OPT_TYPE_INT, { .i64 = 0 }, .flags = FLAGS, .min = 0, .max = 1 },
+    { "blackframe_interval", "Max interval between blackframes", OFFSET(blackframe_interval), AV_OPT_TYPE_INT, { .i64 = 0 }, .flags = FLAGS, .min = 0, .max = INT_MAX },
+    { "blackframe_amount", "Max amount of blackframes", OFFSET(blackframe_amount), AV_OPT_TYPE_INT, { .i64 = 0 }, .flags = FLAGS, .min = 0, .max = INT_MAX },
     { NULL },
 };
 
@@ -215,6 +230,18 @@ static int config_input(AVFilterLink *inlink)
         av_freep(&s->blur_calc_temp_storage[0]);
         return AVERROR(ENOMEM);
     }
+
+    if (s->blackframe_amount > 0 && s->blackframe_interval <= 0) {
+        s->blackframe_interval = 25;
+    }
+
+    if (s->blackframe_interval > 0 && s->blackframe_amount <= 0) {
+        s->blackframe_amount = 25;
+    }
+
+    s->make_black_frames = (s->blackframe_amount > 0 || s->blackframe_interval > 0) ? 1 : 0;
+    s->blackframes_to_insert = 0;
+    s->waiting_for_blackframe = 0;
 
     return 0;
 }
