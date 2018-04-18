@@ -1,29 +1,3 @@
-/*
- * Blackmagic Devices Decklink capture
- *
- * This file is part of Libav.
- *
- * Copyright (C) 2013 Luca Barbato
- *
- * Libav is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * Libav is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with Libav; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
- */
-
-/**
- * @file
- * Blackmagic Devices Decklink capture
- */
 
 #include "config.h"
 #include "libavutil/rational.h"
@@ -83,7 +57,7 @@ static void packet_queue_end(PacketQueue *q)
 
 static int packet_queue_put(PacketQueue *q, AVPacket *pkt, int64_t queue_size)
 {
-    AVPacketList *pkt_entry;
+    AVPacketList* pkt_entry;
     int ret = 0;
     pthread_mutex_lock(&q->mutex);
 
@@ -157,7 +131,7 @@ static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block)
 }
 
 typedef struct {
-    const AVClass   *class;    /**< Class for private options. */
+    const AVClass*  class;    /**< Class for private options. */
 
     // options
     char*           vfile;
@@ -178,9 +152,9 @@ typedef struct {
     int             stop_threads;
 
     PacketQueue     q;
-    AVStream        *audio_st;
-    AVStream        *video_st;
-    AVStream        *data_st;
+    AVStream*       audio_st;
+    AVStream*       video_st;
+    AVStream*       data_st;
 
     int64_t         start_time;
 } SContext;
@@ -208,10 +182,10 @@ static enum AVCodecID av_get_pcm_codec(enum AVSampleFormat fmt, int be)
 
 static AVStream *add_audio_stream(AVFormatContext *oc)
 {
-    SContext *ctx = oc->priv_data;
-    AVCodecParameters *dc = ctx->decoded_a_stream->codecpar;
-    AVCodecParameters *c;
-    AVStream *st;
+    SContext* ctx = oc->priv_data;
+    AVCodecParameters* dc = ctx->decoded_a_stream->codecpar;
+    AVCodecParameters* c;
+    AVStream* st;
 
     st = avformat_new_stream(oc, NULL);
     if (!st)
@@ -235,11 +209,11 @@ static AVStream *add_audio_stream(AVFormatContext *oc)
     return st;
 }
 
-static AVStream *add_data_stream(AVFormatContext *oc)
+static AVStream* add_data_stream(AVFormatContext *oc)
 {
-    SContext *ctx = oc->priv_data;
-    AVCodecParameters *c;
-    AVStream *st;
+    SContext* ctx = oc->priv_data;
+    AVCodecParameters* c;
+    AVStream* st;
 
     st = avformat_new_stream(oc, NULL);
     if (!st) {
@@ -259,11 +233,11 @@ static AVStream *add_data_stream(AVFormatContext *oc)
 
 static AVStream *add_video_stream(AVFormatContext *oc)
 {
-    SContext *ctx = oc->priv_data;
-    AVCodecParameters *dc = ctx->decoded_v_stream->codecpar;
+    SContext* ctx = oc->priv_data;
+    AVCodecParameters* dc = ctx->decoded_v_stream->codecpar;
 
-    AVCodecParameters *c;
-    AVStream *st;
+    AVCodecParameters* c;
+    AVStream* st;
 
     st = avformat_new_stream(oc, NULL);
     if (!st)
@@ -291,7 +265,7 @@ static AVStream *add_video_stream(AVFormatContext *oc)
 
 static int simulator_read_close(AVFormatContext *s)
 {
-    SContext *ctx = s->priv_data;
+    SContext* ctx = s->priv_data;
     int i;
 
     ctx->stop_threads = 1;
@@ -343,7 +317,7 @@ static int put_wallclock_packet(SContext *ctx, int64_t pts)
 
 static void* video_thread(void *priv)
 {
-    SContext *ctx = priv;
+    SContext* ctx = priv;
     uint64_t v_frame_nr = 0, a_frame_nr = 0;
     int64_t a_pts = 0;
     int64_t start_time = av_gettime();
@@ -396,7 +370,7 @@ static void* video_thread(void *priv)
             if (v_frame_nr >= ctx->v_frame_cnt) {
                 v_frame_nr = 0;
                 loop_pts = vf_pts_to_show;
-                a_frame_nr = 0; // reset audio counters too
+                a_frame_nr = 0;
                 a_pts = 0;
             }
 
@@ -539,13 +513,13 @@ static int decode_packet(AVPacket* packet,
     return 0;
 }
 
-static int loadVideoFrames(SContext *ctx)
+static int load_video_frames(SContext *ctx)
 {
     int video_stream_indx = -1, audio_stream_indx = -1, ret;
 
-    AVCodec *video_codec = NULL, *audio_codec = NULL;
-    AVCodecContext *video_codec_ctx = NULL, *audio_codec_ctx = NULL;
-    AVStream *video_stream = NULL, *audio_stream = NULL;
+    AVCodec* video_codec = NULL, *audio_codec = NULL;
+    AVCodecContext* video_codec_ctx = NULL, *audio_codec_ctx = NULL;
+    AVStream* video_stream = NULL, *audio_stream = NULL;
     AVPacket packet;
     char errbuf[1024];
 
@@ -651,14 +625,14 @@ static int loadVideoFrames(SContext *ctx)
 
 static int simulator_read_header(AVFormatContext *s)
 {
-    SContext *ctx = s->priv_data;
+    SContext* ctx = s->priv_data;
     int ret = 0;
 
     ctx->stop_threads = 0;
 
     if ((ret = packet_queue_init(&ctx->q)) < 0) goto out;
 
-    if ((ret = loadVideoFrames(ctx)) < 0) goto out;
+    if ((ret = load_video_frames(ctx)) < 0) goto out;
 
     if (ctx->decoded_v_stream)
         ctx->video_st = add_video_stream(s);
@@ -684,7 +658,7 @@ out:
 
 static int simulator_read_packet(AVFormatContext *s, AVPacket *pkt)
 {
-    SContext *ctx = s->priv_data;
+    SContext* ctx = s->priv_data;
 
     if (ctx->stop_threads)
         return AVERROR_EOF;
