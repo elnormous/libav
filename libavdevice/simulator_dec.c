@@ -243,8 +243,6 @@ static AVStream *add_video_stream(AVFormatContext *oc)
     if (!st)
         return NULL;
 
-    av_log(NULL, AV_LOG_INFO, "VTB: %d %d\n", ctx->decoded_v_stream->time_base.num, ctx->decoded_v_stream->time_base.den);
-
     c                = st->codecpar;
     c->codec_type    = AVMEDIA_TYPE_VIDEO;
 
