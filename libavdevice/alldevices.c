@@ -42,6 +42,7 @@ void avdevice_register_all(void)
     REGISTER_INDEV(AVFOUNDATION,     avfoundation);
     REGISTER_INDEV(BMD,              bmd);
     REGISTER_INDEV(BKTR,             bktr);
+    REGISTER_INDEV(SIMULATOR,        simulator);
     REGISTER_INDEV(FBDEV,            fbdev);
     REGISTER_INDEV(JACK,             jack);
     REGISTER_INDEV(OSS,              oss);

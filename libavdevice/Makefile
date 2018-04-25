@@ -13,6 +13,7 @@ OBJS-$(HAVE_LIBC_MSVCRT)                 += file_open.o
 OBJS-$(CONFIG_ALSA_INDEV)                += alsa.o
 OBJS-$(CONFIG_AVFOUNDATION_INDEV)        += avfoundation.o
 OBJS-$(CONFIG_BMD_INDEV)                 += bmd_dec.o
+OBJS-$(CONFIG_SIMULATOR_INDEV)           += simulator_dec.o
 OBJS-$(CONFIG_BKTR_INDEV)                += bktr.o
 OBJS-$(CONFIG_FBDEV_INDEV)               += fbdev.o
 OBJS-$(CONFIG_JACK_INDEV)                += jack.o timefilter.o
