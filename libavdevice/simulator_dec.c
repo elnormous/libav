@@ -11,8 +11,6 @@
 
 #include <inttypes.h>
 #include <pthread.h>
-#include <emmintrin.h>
-#include <smmintrin.h>
 
 typedef struct PacketQueue {
     AVPacketList *first_pkt, *last_pkt;
