@@ -191,8 +191,6 @@ static AVStream *add_audio_stream(AVFormatContext *oc)
 
     st->time_base  = (AVRational){1, ctx->decoded_a_stream->time_base.den};
 
-    av_log(NULL, AV_LOG_INFO, "ATB: %d %d | SR: %d \n", ctx->decoded_a_stream->time_base.num, ctx->decoded_a_stream->time_base.den, dc->sample_rate);
-
     c              = st->codecpar;
     c->codec_type  = AVMEDIA_TYPE_AUDIO;
 
@@ -201,8 +199,6 @@ static AVStream *add_audio_stream(AVFormatContext *oc)
 
     c->format   = dc->format;
     c->codec_id = av_get_pcm_codec(dc->format, 0);
-
-    av_log(NULL, AV_LOG_INFO, "Format: %d\n", dc->format);
 
     return st;
 }
