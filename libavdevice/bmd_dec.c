@@ -451,7 +451,7 @@ static int video_callback(void *priv, uint8_t *frame,
         
         ctx->start_time = av_gettime() / 1000;
         
-        av_log(NULL, AV_LOG_INFO, "BMD start time: %lld\n", ctx->start_time);
+        av_log(ctx, AV_LOG_INFO, "BMD start time: %lld\n", ctx->start_time);
         
         time_data = av_stream_new_side_data(ctx->video_st, AV_PKT_DATA_STREAM_START_TIME, sizeof(int64_t));
         if (time_data) {
@@ -569,6 +569,8 @@ static int bmd_read_header(AVFormatContext *s)
     ctx->start_time = AV_NOPTS_VALUE;
 
     decklink_capture_start(ctx->capture);
+
+    av_log(ctx, AV_LOG_INFO, "BMD Video mode: %d\n", ctx->conf.video_mode);
 
     return 0;
 out:
