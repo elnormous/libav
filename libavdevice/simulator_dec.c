@@ -314,7 +314,7 @@ static void* video_thread(void *priv)
     int64_t a_pts = 0;
     int64_t start_time = av_gettime();
     int64_t vf_shown = -1;
-    uint64_t loop_pts = 0;
+    int64_t loop_pts = 0, a_loop_pts = 0;
 
     {
         int64_t* time_data;
@@ -345,11 +345,16 @@ static void* video_thread(void *priv)
     while (!ctx->stop_threads) {
         int64_t ctime = av_gettime();
         int produced = 0;
+        int64_t af_pts_to_show = 0;
 
         int64_t vf_to_show = ((ctime - start_time) / 1000) * ctx->video_st->avg_frame_rate.num / (ctx->video_st->avg_frame_rate.den * 1000);
 
         uint64_t vf_pts_to_show = vf_to_show * ctx->decoded_v_stream->time_base.den /
             ctx->decoded_v_stream->time_base.num * ctx->video_st->avg_frame_rate.den / ctx->video_st->avg_frame_rate.num;
+
+        if (ctx->audio_st) {
+            af_pts_to_show = ((ctime - start_time) / 1000) * ctx->decoded_a_stream->time_base.den / (ctx->decoded_a_stream->time_base.num * 1000);
+        }
 
         while (vf_shown < vf_to_show)
         {
@@ -362,8 +367,8 @@ static void* video_thread(void *priv)
             if (v_frame_nr >= ctx->v_frame_cnt) {
                 v_frame_nr = 0;
                 loop_pts = vf_pts_to_show;
+                a_loop_pts = af_pts_to_show;
                 a_frame_nr = 0;
-                a_pts = 0;
             }
 
             frame = ctx->v_frames[v_frame_nr];
@@ -414,20 +419,11 @@ static void* video_thread(void *priv)
         }
 
         if (ctx->audio_st) {
-
-            // convert video time to audio time and release all audio frames till that frame
-            int64_t a_pts_to_show = ((vf_pts_to_show - loop_pts) * ctx->audio_st->time_base.den) / (ctx->decoded_v_stream->time_base.den * ctx->audio_st->time_base.num);
-            int64_t loop_a_pts = (loop_pts * ctx->audio_st->time_base.den) / (ctx->decoded_v_stream->time_base.den * ctx->audio_st->time_base.num);
-
-            while (a_frame_nr < ctx->a_frame_cnt && a_pts <= a_pts_to_show) {
+            while (a_pts <= af_pts_to_show) {
                 AVPacket pkt;
                 int ret, sz;
 
-                AVFrame* frame = ctx->a_frames[a_frame_nr++];
-                while (frame->pts < 0 && a_frame_nr < ctx->a_frame_cnt) {
-                    frame = ctx->a_frames[a_frame_nr++];
-                }
-
+                AVFrame* frame = ctx->a_frames[a_frame_nr];
                 sz = av_get_bytes_per_sample(frame->format) * frame->nb_samples;
 
                 ret = av_new_packet(&pkt, sz);
@@ -438,11 +434,15 @@ static void* video_thread(void *priv)
 
                 memcpy(pkt.buf->data, frame->data[0], sz);
 
-                a_pts = frame->pts;
-
-                pkt.dts = pkt.pts = loop_a_pts + frame->pts;
+                pkt.dts = pkt.pts = a_pts;// + a_loop_pts;
                 pkt.flags        |= AV_PKT_FLAG_KEY;
                 pkt.stream_index  = ctx->audio_st->index;
+
+                a_pts += frame->nb_samples;
+
+                if (a_frame_nr + 1 < ctx->a_frame_cnt && frame->pts <= a_pts - loop_pts) {
+                    a_frame_nr++;
+                }
 
                 if (packet_queue_put(&ctx->q, &pkt, ctx->queue_size) != 0) {
                     av_log(NULL, AV_LOG_WARNING, "no space in queue, audio frame dropped.\n");
