@@ -12,6 +12,4 @@ void enc_send(int type, const char* message);
 #define ENC_MSG_BLACK_FRAME     2
 #define ENC_MSG_AUDIO_LVL       3
 
-#define ENC_MSG_LAST            255
-
 #endif /* enc_connection_h */

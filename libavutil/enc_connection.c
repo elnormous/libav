@@ -111,36 +111,6 @@ static int msg_queue_put(MsgQueue* q, EncMsg* msg, int64_t queue_size)
     return ret;
 }
 
-static int msg_queue_get(MsgQueue* q, EncMsg* msg, int block)
-{
-    MsgList *msg_entry;
-    int ret = 0;
-
-    pthread_mutex_lock(&q->mutex);
-
-    for (;;) {
-        msg_entry = q->first;
-        if (msg_entry) {
-            q->first = msg_entry->next;
-            if (!q->first) {
-                q->last = NULL;
-            }
-            q->nb_msgs--;
-            *msg = *(msg_entry->msg);
-            free(msg_entry->msg);
-            free(msg_entry);
-            break;
-        } else if (!block) {
-            ret = AVERROR(EAGAIN);
-            break;
-        } else {
-            pthread_cond_wait(&q->cond, &q->mutex);
-        }
-    }
-    pthread_mutex_unlock(&q->mutex);
-    return ret;
-}
-
 // how to get info?
 char* enc_connection = NULL;
 
@@ -156,13 +126,31 @@ static void* connect_thread(void* arg)
     char buf[256];
 
     while (!stop) {
-        // connect to encoder tools
 
-        msg_queue_get(&queue, msg, 1);
-        if (msg->type == ENC_MSG_LAST) {
-            free(msg->msg);
-            break;
+        {
+            MsgList *msg_entry;
+
+            pthread_mutex_lock(&queue.mutex);
+            for (;;) {
+                msg_entry = queue.first;
+                if (msg_entry) {
+                    queue.first = msg_entry->next;
+                    if (!queue.first) {
+                        queue.last = NULL;
+                    }
+                    queue.nb_msgs--;
+                    *msg = *(msg_entry->msg);
+                    free(msg_entry->msg);
+                    free(msg_entry);
+                    break;
+                } else {
+                    pthread_cond_wait(&queue.cond, &queue.mutex);
+                    if (stop) break;
+                }
+            }
+            pthread_mutex_unlock(&queue.mutex);
         }
+        if (stop) break;
 
         if (sockfd > 0 && read(sockfd, buf, sizeof(buf)-1) == 0) {
             av_log(NULL, AV_LOG_WARNING, "ENC Disconnected\n");
@@ -267,7 +255,11 @@ void enc_connection_stop()
 {
     if (enc_connection != NULL) {
         stop = 1;
-        enc_send(ENC_MSG_LAST, "");
+
+        pthread_mutex_lock(&queue.mutex);
+        pthread_cond_signal(&queue.cond);
+        pthread_mutex_unlock(&queue.mutex);
+
         pthread_join(thread, NULL);
         msg_queue_end(&queue);
     }
