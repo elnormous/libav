@@ -25,7 +25,7 @@
 
 typedef struct CoruptContext {
     const AVClass *class;
-    int make_blury_frames;
+    int make_blurry_frames;
     int blackframe_amount;
     int blackframe_interval;
 
@@ -164,7 +164,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
         }
     }
 
-    if (s->make_blury_frames) {
+    if (s->make_blurry_frames) {
         if ((rand() & 0xF) == 1) {
             AVFilterLink *outlink = inlink->dst->outputs[0];
             AVFrame *out;
@@ -203,7 +203,7 @@ static int filter_frame(AVFilterLink *inlink, AVFrame *frame)
 #define OFFSET(x) offsetof(CoruptContext, x)
 #define FLAGS AV_OPT_FLAG_VIDEO_PARAM
 static const AVOption options[] = {
-    { "blur", "Make blury frames", OFFSET(make_blury_frames), AV_OPT_TYPE_INT, { .i64 = 0 }, .flags = FLAGS, .min = 0, .max = 1 },
+    { "blur", "Make blurry frames", OFFSET(make_blurry_frames), AV_OPT_TYPE_INT, { .i64 = 0 }, .flags = FLAGS, .min = 0, .max = 1 },
     { "blackframe_interval", "Max interval between blackframes", OFFSET(blackframe_interval), AV_OPT_TYPE_INT, { .i64 = 0 }, .flags = FLAGS, .min = 0, .max = INT_MAX },
     { "blackframe_amount", "Max amount of blackframes", OFFSET(blackframe_amount), AV_OPT_TYPE_INT, { .i64 = 0 }, .flags = FLAGS, .min = 0, .max = INT_MAX },
     { NULL },
