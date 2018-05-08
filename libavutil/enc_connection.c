@@ -168,7 +168,7 @@ static void* connect_thread(void* arg)
 
             char* port = strchr(enc_connection, ':');
 
-            memset(&ipString[0], 0, sizeof(ipString));
+            memset(ipString, 0, sizeof(ipString));
 
             if (port != NULL) {
                 port++;
@@ -196,7 +196,7 @@ static void* connect_thread(void* arg)
             server = gethostbyname(ipString);
 
             if (server == NULL) {
-                av_log(NULL, AV_LOG_ERROR, "ERROR, no such host %s\n", ipString);
+                av_log(NULL, AV_LOG_ERROR, "ERROR, failed to get hostname %s -> %s\n", ipString, strerror(errno));
                 exit(1);
             }
 
