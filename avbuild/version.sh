@@ -1,14 +1,16 @@
 #!/bin/sh
 
 # check for git short hash
-cnt=$(cd "$1" && git rev-list --count evolution)
-hsh=$(cd "$1" && git rev-parse HEAD | cut -c1-7)
+revision=$(cd "$1" && git describe --always 2> /dev/null)
 
-revision="$cnt-$hsh"
+# no revision number found
+test "$revision" || revision=$(cd "$1" && cat RELEASE 2> /dev/null)
 
 # releases extract the version number from the VERSION file
 version=$(cd "$1" && cat VERSION 2> /dev/null)
-test "$version" && version=$version-$revision || version=$revision
+test "$version" || version=$revision
+
+test -n "$3" && version=$version-$3
 
 if [ -z "$2" ]; then
     echo "$version"
