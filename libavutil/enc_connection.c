@@ -164,9 +164,12 @@ static void* connect_thread(void* arg)
             struct hostent *server;
             struct timeval tv;
 
-            char ipString[20];
+            char ipString[256]; // can contain hostname
 
             char* port = strchr(enc_connection, ':');
+
+            memset(&ipString[0], 0, sizeof(ipString));
+
             if (port != NULL) {
                 port++;
             }
@@ -188,13 +191,13 @@ static void* connect_thread(void* arg)
 
             strncpy(ipString, enc_connection, port - enc_connection - 1);
 
-            printf("ENC Connection => %s : %s\n", ipString, port);
+            av_log(NULL, AV_LOG_INFO, "ENC Connection => %s : %s\n", ipString, port);
 
             server = gethostbyname(ipString);
 
             if (server == NULL) {
-                av_log(NULL, AV_LOG_ERROR, "ERROR, no such host\n");
-                exit(0);
+                av_log(NULL, AV_LOG_ERROR, "ERROR, no such host %s\n", ipString);
+                exit(1);
             }
 
             memset(&serv_addr, 0, sizeof(serv_addr));
